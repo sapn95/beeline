@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="options.css" />
+    <title>Beeline — Manage apps</title>
+  </head>
+  <body>
+    <main>
+      <h1>Beeline — Fast App Launcher</h1>
+      <p class="lead">
+        Manage the apps that show up in the launcher popup. Search them with
+        <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd>.
+      </p>
+
+      <section>
+        <h2>Import</h2>
+        <p>
+          Pull your apps straight from the Microsoft My Apps portal. You will be asked to grant
+          access to <code>myapplications.microsoft.com</code> the first time.
+        </p>
+        <div class="row">
+          <button id="import-myapps" type="button">Import from My Apps</button>
+          <button id="export" type="button">Export JSON</button>
+          <label class="file-btn">
+            Import JSON
+            <input id="import-file" type="file" accept="application/json" hidden />
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Add an app</h2>
+        <form id="add-form" class="row">
+          <input id="name" type="text" placeholder="Name" required />
+          <input id="url" type="url" placeholder="https://…" required />
+          <button type="submit">Add</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>Settings</h2>
+        <label class="check">
+          <input id="open-in-new-tab" type="checkbox" /> Open apps in a new tab
+        </label>
+        <label class="check">
+          <input id="close-after-launch" type="checkbox" /> Close the popup after launching
+        </label>
+      </section>
+
+      <section>
+        <div class="row between">
+          <h2>Your apps (<span id="count">0</span>)</h2>
+          <button id="clear" type="button" class="danger">Remove all</button>
+        </div>
+        <ul id="list" class="apps"></ul>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </section>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

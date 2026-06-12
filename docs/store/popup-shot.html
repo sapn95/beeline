@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Reuses the real popup styles so the screenshot matches the product. -->
+    <link rel="stylesheet" href="../../src/popup/popup.css" />
+  </head>
+  <body>
+    <div id="app">
+      <input id="search" type="text" value="a" aria-label="Search apps" />
+      <ul id="results" role="listbox" aria-label="Apps">
+        <li class="item selected" role="option" aria-selected="true">
+          <span class="icon letter">A</span>
+          <span class="meta">
+            <span class="name"><mark>A</mark>zure Portal</span>
+            <span class="host">portal.azure.com</span>
+          </span>
+        </li>
+        <li class="item" role="option">
+          <span class="icon letter">A</span>
+          <span class="meta">
+            <span class="name"><mark>A</mark>WS Console</span>
+            <span class="host">console.aws.amazon.com</span>
+          </span>
+        </li>
+        <li class="item" role="option">
+          <span class="icon letter">S</span>
+          <span class="meta">
+            <span class="name">S<mark>a</mark>lesforce</span>
+            <span class="host">salesforce.com</span>
+          </span>
+        </li>
+        <li class="item" role="option">
+          <span class="icon letter">A</span>
+          <span class="meta">
+            <span class="name"><mark>A</mark>tlassian</span>
+            <span class="host">id.atlassian.com</span>
+          </span>
+        </li>
+        <li class="item" role="option">
+          <span class="icon letter">W</span>
+          <span class="meta">
+            <span class="name">Workd<mark>a</mark>y</span>
+            <span class="host">myworkday.com</span>
+          </span>
+        </li>
+      </ul>
+      <footer>
+        <button id="open-options" type="button">Manage apps</button>
+        <span class="hint">↑↓ navigate · ↵ open · esc close</span>
+      </footer>
+    </div>
+  </body>
+</html>

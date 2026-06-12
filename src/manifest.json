@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Beeline — Fast App Launcher",
+  "version": "0.1.0",
+  "description": "Keyboard-first launcher for your Microsoft My Apps / Entra SSO apps. Search and open any app in milliseconds.",
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Beeline — Fast App Launcher",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options/options.html",
+  "permissions": ["storage", "scripting"],
+  "optional_host_permissions": ["https://myapplications.microsoft.com/*"],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Space",
+        "mac": "Command+Shift+Space"
+      },
+      "description": "Open Beeline"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

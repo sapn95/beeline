@@ -1,0 +1,33 @@
+{
+  "name": "myapps-launcher",
+  "version": "0.1.0",
+  "description": "Beeline — a fast, keyboard-first launcher for your Microsoft My Apps / Entra single-sign-on apps.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "icons": "node scripts/make-icons.mjs",
+    "build": "node scripts/build.mjs",
+    "package": "node scripts/build.mjs --zip",
+    "ci": "npm run lint && npm run format:check && npm run test:coverage && npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@vitest/coverage-v8": "^4.1.8",
+    "eslint": "^9.17.0",
+    "globals": "^15.14.0",
+    "jsdom": "^25.0.1",
+    "prettier": "^3.4.2",
+    "vitest": "^4.1.8"
+  }
+}

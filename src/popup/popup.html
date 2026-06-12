@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>Beeline</title>
+  </head>
+  <body>
+    <div id="app">
+      <input
+        id="search"
+        type="text"
+        placeholder="Search apps…"
+        autocomplete="off"
+        autocapitalize="off"
+        autocorrect="off"
+        spellcheck="false"
+        aria-label="Search apps"
+        aria-controls="results"
+      />
+      <ul id="results" role="listbox" aria-label="Apps"></ul>
+      <div id="empty" hidden>
+        <p>No apps yet.</p>
+        <button id="manage" type="button">Add or import apps</button>
+      </div>
+      <footer>
+        <button id="open-options" type="button">Manage apps</button>
+        <span class="hint">↑↓ navigate · ↵ open · esc close</span>
+      </footer>
+    </div>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

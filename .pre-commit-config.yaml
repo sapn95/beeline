@@ -1,0 +1,36 @@
+# Secret-scanning + lint/format hooks. ggshield, detect-aws-credentials and
+# detect-private-key keep secrets and keys out of the repo.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-json
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: detect-aws-credentials
+        args: ['--allow-missing-credentials']
+
+  - repo: https://github.com/gitguardian/ggshield
+    rev: v1.34.0
+    hooks:
+      - id: ggshield
+        language_version: python3
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint
+        entry: npx eslint
+        language: system
+        types: [javascript]
+        pass_filenames: false
+      - id: prettier
+        name: prettier
+        entry: npx prettier --check .
+        language: system
+        pass_filenames: false
+        types_or: [javascript, json, yaml, markdown, css, html]

@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root {
+        --brand: #eb0000;
+        --fg: #1f2330;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --accent-bg: #fdeaea;
+        --mark: #fde68a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      .stage {
+        width: 1280px;
+        height: 800px;
+        display: flex;
+        align-items: center;
+        gap: 64px;
+        padding: 0 88px;
+        background:
+          radial-gradient(900px 600px at 110% -10%, #fde8e8 0%, rgba(253, 232, 232, 0) 60%), #f5f6f8;
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+        color: var(--fg);
+      }
+      .left {
+        width: 560px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 28px;
+      }
+      .brand img {
+        width: 64px;
+        height: 64px;
+        border-radius: 14px;
+      }
+      .brand .wordmark {
+        font-size: 30px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+      }
+      h1 {
+        font-size: 46px;
+        line-height: 1.08;
+        letter-spacing: -1px;
+        margin: 0 0 18px;
+      }
+      h1 .hl {
+        color: var(--brand);
+      }
+      .sub {
+        font-size: 20px;
+        line-height: 1.5;
+        color: var(--muted);
+        margin: 0 0 28px;
+      }
+      .kbd {
+        display: inline-flex;
+        gap: 8px;
+        margin-bottom: 30px;
+      }
+      .kbd span {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-bottom-width: 3px;
+        border-radius: 8px;
+        padding: 8px 14px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      ul.features {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        font-size: 18px;
+      }
+      ul.features li {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 12px 0;
+      }
+      ul.features .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--brand);
+        flex: 0 0 auto;
+      }
+
+      .popup {
+        width: 440px;
+        background: #fff;
+        border-radius: 18px;
+        box-shadow:
+          0 30px 70px rgba(17, 20, 32, 0.22),
+          0 4px 12px rgba(17, 20, 32, 0.08);
+        overflow: hidden;
+      }
+      .search {
+        padding: 18px 20px;
+        border-bottom: 1px solid var(--border);
+        font-size: 20px;
+        color: var(--fg);
+      }
+      .search .caret {
+        display: inline-block;
+        width: 2px;
+        height: 22px;
+        background: var(--brand);
+        vertical-align: -4px;
+        margin-left: 1px;
+      }
+      .rows {
+        list-style: none;
+        margin: 0;
+        padding: 8px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 12px 14px;
+        border-radius: 12px;
+      }
+      .row.sel {
+        background: var(--accent-bg);
+      }
+      .ico {
+        width: 38px;
+        height: 38px;
+        border-radius: 9px;
+        background: var(--accent-bg);
+        color: var(--brand);
+        font-weight: 700;
+        font-size: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+      }
+      .nm {
+        font-size: 17px;
+        font-weight: 500;
+      }
+      .nm mark {
+        background: var(--mark);
+        border-radius: 3px;
+        padding: 0 1px;
+      }
+      .hs {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .foot {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 18px;
+        border-top: 1px solid var(--border);
+        font-size: 13px;
+      }
+      .foot .manage {
+        color: var(--brand);
+        font-weight: 600;
+      }
+      .foot .hint {
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="left">
+        <div class="brand">
+          <img src="../../src/icons/icon-128.png" alt="" />
+          <span class="wordmark">Beeline</span>
+        </div>
+        <h1>Open any app in <span class="hl">milliseconds</span>.</h1>
+        <p class="sub">
+          A fast, keyboard-first launcher for your Microsoft My Apps / Entra single sign-on apps.
+        </p>
+        <div class="kbd"><span>⌘</span><span>Shift</span><span>Space</span></div>
+        <ul class="features">
+          <li><span class="dot"></span> Fuzzy search with instant results</li>
+          <li><span class="dot"></span> Your most-used apps rise to the top</li>
+          <li><span class="dot"></span> One-click import from My Apps</li>
+          <li><span class="dot"></span> Private by design — nothing leaves your browser</li>
+        </ul>
+      </div>
+
+      <div class="popup">
+        <div class="search">a<span class="caret"></span></div>
+        <ul class="rows">
+          <li class="row sel">
+            <span class="ico">A</span>
+            <div>
+              <div class="nm"><mark>A</mark>zure Portal</div>
+              <div class="hs">portal.azure.com</div>
+            </div>
+          </li>
+          <li class="row">
+            <span class="ico">A</span>
+            <div>
+              <div class="nm"><mark>A</mark>WS Console</div>
+              <div class="hs">console.aws.amazon.com</div>
+            </div>
+          </li>
+          <li class="row">
+            <span class="ico">S</span>
+            <div>
+              <div class="nm">S<mark>a</mark>lesforce</div>
+              <div class="hs">salesforce.com</div>
+            </div>
+          </li>
+          <li class="row">
+            <span class="ico">A</span>
+            <div>
+              <div class="nm"><mark>A</mark>tlassian</div>
+              <div class="hs">id.atlassian.com</div>
+            </div>
+          </li>
+          <li class="row">
+            <span class="ico">W</span>
+            <div>
+              <div class="nm">Workd<mark>a</mark>y</div>
+              <div class="hs">myworkday.com</div>
+            </div>
+          </li>
+        </ul>
+        <div class="foot">
+          <span class="manage">Manage apps</span>
+          <span class="hint">↑↓ navigate · ↵ open · esc close</span>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

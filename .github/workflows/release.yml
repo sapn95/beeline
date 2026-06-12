@@ -1,0 +1,73 @@
+name: Release
+
+# Tagging a version (e.g. `git tag v0.2.0 && git push --tags`) builds, tests,
+# packages the extension, creates a GitHub release, and — when the Chrome Web
+# Store secrets are configured — uploads and publishes the new version.
+#
+# See docs/publishing.md for the one-time store setup and the four secrets:
+#   CHROME_EXTENSION_ID, CHROME_CLIENT_ID, CHROME_CLIENT_SECRET, CHROME_REFRESH_TOKEN
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:coverage
+      - run: npm run icons
+      - run: npm run package
+
+      - name: GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: myapps-launcher-v*.zip
+          generate_release_notes: true
+
+      - name: Detect Chrome Web Store secrets
+        id: cws
+        env:
+          ID: ${{ secrets.CHROME_EXTENSION_ID }}
+        run: |
+          if [ -n "$ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Chrome Web Store secrets not set — skipping store publish. See docs/publishing.md."
+          fi
+
+      - name: Upload & publish to the Chrome Web Store
+        if: steps.cws.outputs.ready == 'true'
+        env:
+          EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+          ZIP="$(ls myapps-launcher-v*.zip)"
+          echo "Uploading $ZIP"
+          npx --yes chrome-webstore-upload-cli@3 upload \
+            --source "$ZIP" \
+            --extension-id "$EXTENSION_ID" \
+            --client-id "$CLIENT_ID" \
+            --client-secret "$CLIENT_SECRET" \
+            --refresh-token "$REFRESH_TOKEN"
+          npx --yes chrome-webstore-upload-cli@3 publish \
+            --extension-id "$EXTENSION_ID" \
+            --client-id "$CLIENT_ID" \
+            --client-secret "$CLIENT_SECRET" \
+            --refresh-token "$REFRESH_TOKEN"

@@ -1,0 +1,9 @@
+dist/
+coverage/
+node_modules/
+src/icons/
+*.zip
+
+# binary image assets
+docs/store/*.png
+assets/*.png

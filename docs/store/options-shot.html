@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Reuses the real options styles so the screenshot matches the product. -->
+    <link rel="stylesheet" href="../../src/options/options.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Beeline — Fast App Launcher</h1>
+      <p class="lead">
+        Manage the apps that show up in the launcher popup. Search them with
+        <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd>.
+      </p>
+
+      <section>
+        <h2>Import</h2>
+        <p>
+          Pull your apps straight from the Microsoft My Apps portal. You will be asked to grant
+          access to <code>myapplications.microsoft.com</code> the first time.
+        </p>
+        <div class="row">
+          <button type="button">Import from My Apps</button>
+          <button type="button">Export JSON</button>
+          <label class="file-btn">Import JSON</label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Settings</h2>
+        <label class="check"><input type="checkbox" checked /> Open apps in a new tab</label>
+        <label class="check"
+          ><input type="checkbox" checked /> Close the popup after launching</label
+        >
+      </section>
+
+      <section>
+        <div class="row between">
+          <h2>Your apps (<span>5</span>)</h2>
+          <button type="button" class="danger">Remove all</button>
+        </div>
+        <ul class="apps">
+          <li>
+            <div class="grow">
+              <div class="app-name">Azure Portal</div>
+              <div class="app-url">https://portal.azure.com/</div>
+            </div>
+            <button class="danger" type="button">Remove</button>
+          </li>
+          <li>
+            <div class="grow">
+              <div class="app-name">AWS Console</div>
+              <div class="app-url">https://console.aws.amazon.com/</div>
+            </div>
+            <button class="danger" type="button">Remove</button>
+          </li>
+          <li>
+            <div class="grow">
+              <div class="app-name">Salesforce</div>
+              <div class="app-url">https://salesforce.com/</div>
+            </div>
+            <button class="danger" type="button">Remove</button>
+          </li>
+          <li>
+            <div class="grow">
+              <div class="app-name">Atlassian</div>
+              <div class="app-url">https://id.atlassian.com/</div>
+            </div>
+            <button class="danger" type="button">Remove</button>
+          </li>
+          <li>
+            <div class="grow">
+              <div class="app-name">Workday</div>
+              <div class="app-url">https://myworkday.com/</div>
+            </div>
+            <button class="danger" type="button">Remove</button>
+          </li>
+        </ul>
+        <p class="status">Imported 5 new app(s).</p>
+      </section>
+    </main>
+  </body>
+</html>
