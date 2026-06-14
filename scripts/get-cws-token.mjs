@@ -75,6 +75,11 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log('Opening the Google consent screen…');
   console.log(`If it does not open automatically, visit:\n${authUrl}\n`);
-  // macOS opener; on Linux use `xdg-open`.
-  exec(`open "${authUrl}"`);
+  // macOS opener. Set BROWSER to force a specific app, e.g.
+  // BROWSER="Google Chrome" node scripts/get-cws-token.mjs ...
+  // On Linux use `xdg-open`.
+  const cmd = process.env.BROWSER
+    ? `open -a ${JSON.stringify(process.env.BROWSER)} "${authUrl}"`
+    : `open "${authUrl}"`;
+  exec(cmd);
 });

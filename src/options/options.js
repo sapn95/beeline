@@ -92,6 +92,40 @@ async function onClear() {
   setStatus('Removed all apps.');
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Injected into the My Apps page to trigger lazy-loading of all app tiles.
+function scrollMyAppsToBottom() {
+  window.scrollTo(0, document.body.scrollHeight);
+  return document.body.scrollHeight;
+}
+
+// Make sure a My Apps tab exists and is focused; returns its tab id.
+async function ensureMyAppsTab() {
+  const [existing] = await chrome.tabs.query({ url: MYAPPS_PATTERN });
+  if (existing) {
+    await chrome.tabs.update(existing.id, { active: true });
+    return existing.id;
+  }
+  const created = await chrome.tabs.create({ url: MYAPPS_ORIGIN, active: true });
+  return created.id;
+}
+
+// Scroll + scrape one round. Returns the app array, or null when the page is
+// not accessible yet (still on the Microsoft sign-in origin, or still loading).
+async function scrapeTab(tabId) {
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, func: scrollMyAppsToBottom });
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: scrapeAppsFromDocument,
+    });
+    return results?.[0]?.result ?? [];
+  } catch {
+    return null; // no host permission yet (sign-in origin) or page not ready
+  }
+}
+
 async function onImportMyApps() {
   setStatus('Requesting access to My Apps…');
   const granted = await chrome.permissions.request({ origins: [MYAPPS_PATTERN] });
@@ -100,31 +134,49 @@ async function onImportMyApps() {
     return;
   }
 
-  const [tab] = await chrome.tabs.query({ url: MYAPPS_PATTERN });
-  if (!tab) {
-    chrome.tabs.create({ url: MYAPPS_ORIGIN });
-    setStatus('Opened My Apps. Sign in, then click “Import from My Apps” again.');
-    return;
+  const selfTab = await chrome.tabs.getCurrent();
+  const tabId = await ensureMyAppsTab();
+
+  // Poll for up to ~60s so a single click covers signing in AND the SPA
+  // lazy-loading its tiles. Keep the largest stable result we have seen, and
+  // scroll each round so virtualised/long app grids are fully loaded.
+  setStatus('Waiting for My Apps to load (sign in if asked)…');
+  const deadline = Date.now() + 60000;
+  let best = [];
+  let stableRounds = 0;
+  while (Date.now() < deadline && stableRounds < 3) {
+    await sleep(1200);
+    const found = await scrapeTab(tabId);
+    if (found === null) {
+      setStatus('Waiting for you to sign in to My Apps…');
+      continue;
+    }
+    if (found.length > best.length) {
+      best = found;
+      stableRounds = 0;
+      setStatus(`Found ${best.length} app(s)…`);
+    } else if (found.length > 0 && found.length === best.length) {
+      stableRounds += 1;
+    }
   }
 
-  setStatus('Reading apps from the open My Apps tab…');
-  let scraped = [];
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: scrapeAppsFromDocument,
-    });
-    scraped = (results && results[0] && results[0].result) || [];
-  } catch (err) {
-    setStatus(`Could not read the page: ${err.message}`);
+  if (selfTab) await chrome.tabs.update(selfTab.id, { active: true });
+
+  if (best.length === 0) {
+    setStatus(
+      'No apps found. Make sure you are signed in and your apps are visible on My Apps, then click Import again.',
+    );
     return;
   }
 
   const before = apps.length;
-  apps = mergeApps(apps, scraped);
+  apps = mergeApps(apps, best);
   await saveApps(apps);
   renderList();
-  setStatus(`Found ${scraped.length} app(s); added ${apps.length - before} new one(s).`);
+  setStatus(
+    `Imported ${best.length} app(s) — ${apps.length - before} new. ` +
+      'Run Import again anytime to pick up apps you add later.',
+  );
 }
 
 function onExport() {
