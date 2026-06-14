@@ -23,6 +23,12 @@ async function init() {
   document.getElementById('clear').addEventListener('click', onClear);
   document.getElementById('open-in-new-tab').addEventListener('change', onSettingChange);
   document.getElementById('close-after-launch').addEventListener('change', onSettingChange);
+
+  // Show the running version (read from the manifest, so it always matches).
+  const footer = document.createElement('footer');
+  footer.className = 'appver';
+  footer.textContent = `Beeline v${chrome.runtime.getManifest().version}`;
+  document.querySelector('main').appendChild(footer);
 }
 
 function setStatus(msg) {

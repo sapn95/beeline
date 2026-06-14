@@ -152,3 +152,12 @@ kbd {
   color: var(--muted);
   min-height: 1.2em;
 }
+
+.appver {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
