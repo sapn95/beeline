@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Keep GitHub Actions current (so deprecations like Node 20 -> 24 are auto-PR'd).
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+
+  # Keep the dev toolchain (eslint, prettier, vitest, jsdom) up to date.
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ['*']
