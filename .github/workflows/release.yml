@@ -1,8 +1,11 @@
 name: Release
 
-# Tagging a version (e.g. `git tag v0.2.0 && git push --tags`) builds, tests,
-# packages the extension, creates a GitHub release, and — when the Chrome Web
-# Store secrets are configured — uploads and publishes the new version.
+# Runs when you "do a release" any of these ways:
+#   - push a version tag:   npm version patch && git push --follow-tags
+#   - publish a GitHub Release in the UI
+#   - click "Run workflow" (manual dispatch)
+# It builds, tests, packages, and — when the Chrome Web Store secrets are set —
+# uploads and publishes the new version to the store automatically.
 #
 # See docs/publishing.md for the one-time store setup and the four secrets:
 #   CHROME_EXTENSION_ID, CHROME_CLIENT_ID, CHROME_CLIENT_SECRET, CHROME_REFRESH_TOKEN
@@ -10,6 +13,9 @@ name: Release
 on:
   push:
     tags: ['v*']
+  release:
+    types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -32,6 +38,7 @@ jobs:
       - run: npm run package
 
       - name: GitHub release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           files: myapps-launcher-v*.zip
