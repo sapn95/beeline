@@ -4,11 +4,13 @@ name: Release
 #   - push a version tag:   npm version patch && git push --follow-tags
 #   - publish a GitHub Release in the UI
 #   - click "Run workflow" (manual dispatch)
-# It builds, tests, packages, and — when the Chrome Web Store secrets are set —
-# uploads and publishes the new version to the store automatically.
+# It builds, tests, and packages BOTH Chrome + Firefox, and — when the store
+# secrets are set — uploads/publishes to the Chrome Web Store and signs/publishes
+# to Firefox AMO automatically.
 #
-# See docs/publishing.md for the one-time store setup and the four secrets:
-#   CHROME_EXTENSION_ID, CHROME_CLIENT_ID, CHROME_CLIENT_SECRET, CHROME_REFRESH_TOKEN
+# See docs/publishing.md for setup. Secrets:
+#   Chrome:       CHROME_EXTENSION_ID, CHROME_CLIENT_ID, CHROME_CLIENT_SECRET, CHROME_REFRESH_TOKEN
+#   Firefox (AMO): AMO_JWT_ISSUER, AMO_JWT_SECRET
 
 on:
   push:
@@ -46,7 +48,7 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          files: myapps-launcher-v*.zip
+          files: myapps-launcher*.zip
           generate_release_notes: true
 
       - name: Detect Chrome Web Store secrets
@@ -99,3 +101,28 @@ jobs:
             exit 1
           fi
           echo "$pub"
+
+      - name: Detect Firefox AMO secrets
+        id: amo
+        env:
+          ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+        run: |
+          if [ -n "$ISSUER" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::AMO secrets not set — skipping Firefox publish. See docs/publishing.md."
+          fi
+
+      - name: Sign & publish to Firefox AMO
+        if: steps.amo.outputs.ready == 'true'
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          set -uo pipefail
+          npx --yes web-ext@latest sign \
+            --channel=listed \
+            --source-dir=dist-firefox \
+            --api-key="$AMO_JWT_ISSUER" \
+            --api-secret="$AMO_JWT_SECRET"

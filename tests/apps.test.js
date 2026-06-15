@@ -7,6 +7,7 @@ import {
   normalizeAppList,
   mergeApps,
   reconcileApps,
+  withAwsRegion,
 } from '../src/lib/apps.js';
 
 describe('isValidHttpsUrl', () => {
@@ -118,5 +119,31 @@ describe('reconcileApps', () => {
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe('Mine');
     expect(result[0].source).toBe('manual');
+  });
+});
+
+describe('withAwsRegion', () => {
+  const launcher = 'https://launcher.myapps.microsoft.com/api/signin/x?tenantId=t';
+
+  it('adds a RelayState region deep-link for aws-named launcher apps', () => {
+    const out = withAwsRegion(launcher, 'SBB AWS int-nonprod', 'eu-central-1');
+    expect(new URL(out).searchParams.get('RelayState')).toBe(
+      'https://console.aws.amazon.com/console/home?region=eu-central-1',
+    );
+  });
+
+  it('sets the region query param directly on a console URL', () => {
+    const out = withAwsRegion('https://console.aws.amazon.com/console/home', 'AWS', 'eu-west-1');
+    expect(new URL(out).searchParams.get('region')).toBe('eu-west-1');
+  });
+
+  it('leaves non-aws apps and empty regions untouched', () => {
+    expect(withAwsRegion('https://x.com/', 'GitHub', 'eu-central-1')).toBe('https://x.com/');
+    expect(withAwsRegion('https://x.com/', 'AWS', '')).toBe('https://x.com/');
+  });
+
+  it('does not overwrite an existing RelayState', () => {
+    const url = `${launcher}&RelayState=https%3A%2F%2Fexisting`;
+    expect(withAwsRegion(url, 'AWS', 'eu-central-1')).toBe(url);
   });
 });

@@ -94,3 +94,28 @@ The tag push triggers `release.yml`, which:
 2. `chrome://extensions` → enable **Developer mode** → **Load unpacked** →
    select the `dist/` folder.
 3. Open the popup with the toolbar button or `Ctrl/Cmd+Shift+Space`.
+
+## Firefox (AMO)
+
+The same source also builds a Firefox add-on. `npm run build:firefox` emits
+`dist-firefox/` (event-page background + a `browser_specific_settings.gecko`
+id), and `npm run package` produces `myapps-launcher-firefox-vX.Y.Z.zip`
+alongside the Chrome zip.
+
+**Local testing:** `about:debugging#/runtime/this-firefox` → **Load Temporary
+Add-on** → pick `dist-firefox/manifest.json`.
+
+**Automated publish (AMO):** the release workflow signs + submits the Firefox
+build when these secrets are set (otherwise it's skipped with a warning):
+
+| Secret           | Where to get it                                                     |
+| ---------------- | ------------------------------------------------------------------- |
+| `AMO_JWT_ISSUER` | <https://addons.mozilla.org/developers/addon/api/key/> (JWT issuer) |
+| `AMO_JWT_SECRET` | the matching JWT secret on that page                                |
+
+As with the Chrome store, create the AMO listing once by hand; thereafter tagging
+a version signs + uploads automatically via `web-ext sign`.
+
+> Firefox notes: the web-search fallback uses DuckDuckGo (Firefox lacks
+> `chrome.search.query`); import, sync, alarms, and the AWS-region feature all
+> work the same.

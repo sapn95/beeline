@@ -56,6 +56,10 @@
             <option value="off">Nothing</option>
           </select>
         </label>
+        <label class="select">
+          AWS region (for apps with “aws” in the name):
+          <select id="aws-region"></select>
+        </label>
       </section>
 
       <section>
@@ -63,8 +67,9 @@
           <h2>Your apps (<span id="count">0</span>)</h2>
           <button id="clear" type="button" class="danger">Remove all</button>
         </div>
+        <input id="app-filter" type="search" placeholder="Filter apps…" aria-label="Filter apps" />
         <ul id="list" class="apps"></ul>
-        <p id="status" class="status" role="status" aria-live="polite"></p>
+        <output id="status" class="status"></output>
       </section>
     </main>
     <script type="module" src="options.js"></script>

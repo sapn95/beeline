@@ -28,10 +28,10 @@ chrome.runtime.onInstalled.addListener((details) => {
 
 chrome.runtime.onStartup.addListener(ensureAlarm);
 
-function ensureAlarm() {
-  chrome.alarms.get(SYNC_ALARM, (existing) => {
-    if (!existing) chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MIN });
-  });
+async function ensureAlarm() {
+  // Promise form works on both Chrome (MV3) and Firefox; the callback form does not.
+  const existing = await chrome.alarms.get(SYNC_ALARM);
+  if (!existing) chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MIN });
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {

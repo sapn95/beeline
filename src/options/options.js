@@ -11,10 +11,12 @@ const statusEl = document.getElementById('status');
 
 let apps = [];
 let editingId = null;
+let appFilter = '';
 
 async function init() {
   apps = await getApps();
   renderList();
+  populateRegions();
   await loadSettings();
 
   document.getElementById('add-form').addEventListener('submit', onAdd);
@@ -22,9 +24,14 @@ async function init() {
   document.getElementById('export').addEventListener('click', onExport);
   document.getElementById('import-file').addEventListener('change', onImportFile);
   document.getElementById('clear').addEventListener('click', onClear);
+  document.getElementById('app-filter').addEventListener('input', (e) => {
+    appFilter = e.target.value;
+    renderList();
+  });
   document.getElementById('open-in-new-tab').addEventListener('change', onSettingChange);
   document.getElementById('close-after-launch').addEventListener('change', onSettingChange);
   document.getElementById('fallback-search').addEventListener('change', onSettingChange);
+  document.getElementById('aws-region').addEventListener('change', onSettingChange);
 
   // Show the running version (read from the manifest, so it always matches).
   const footer = document.createElement('footer');
@@ -38,8 +45,23 @@ function setStatus(msg) {
 }
 
 function renderList() {
-  countEl.textContent = String(apps.length);
-  const rows = apps
+  const q = appFilter.trim().toLowerCase();
+  const filtered = q
+    ? apps.filter((a) => a.name.toLowerCase().includes(q) || a.url.toLowerCase().includes(q))
+    : apps;
+  countEl.textContent = q ? `${filtered.length} found · ${apps.length} total` : String(apps.length);
+
+  if (filtered.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'empty-row';
+    li.textContent = q
+      ? `No apps match “${appFilter.trim()}”.`
+      : 'No apps yet — import from My Apps or add one above.';
+    listEl.replaceChildren(li);
+    return;
+  }
+
+  const rows = filtered
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((app) => (app.id === editingId ? renderEditRow(app) : renderRow(app)));
@@ -73,12 +95,21 @@ function renderRow(app) {
   del.textContent = 'Remove';
   del.addEventListener('click', () => onDelete(app.id));
 
-  li.append(grow, edit, del);
+  li.append(grow);
+  if (app.source === 'myapps') {
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = 'My Apps';
+    badge.title = 'Imported from My Apps — kept in sync';
+    li.append(badge);
+  }
+  li.append(edit, del);
   return li;
 }
 
 function renderEditRow(app) {
   const li = document.createElement('li');
+  li.className = 'editing';
 
   const grow = document.createElement('div');
   grow.className = 'grow edit';
@@ -91,11 +122,33 @@ function renderEditRow(app) {
   urlInput.value = app.url;
   urlInput.setAttribute('aria-label', 'App URL');
   grow.append(nameInput, urlInput);
+  li.append(grow);
+
+  // Apps imported from My Apps get overwritten/removed on the next sync. Let the
+  // user decide whether to pin their edit (keep) or stay linked to My Apps.
+  let keepBox = null;
+  if (app.source === 'myapps') {
+    const note = document.createElement('label');
+    note.className = 'check edit-note';
+    keepBox = document.createElement('input');
+    keepBox.type = 'checkbox';
+    keepBox.checked = true;
+    note.append(
+      keepBox,
+      document.createTextNode(
+        ' This app was imported from My Apps. Keep my changes — otherwise the next' +
+          ' sync overwrites or removes it.',
+      ),
+    );
+    li.append(note);
+  }
 
   const save = document.createElement('button');
   save.type = 'button';
   save.textContent = 'Save';
-  save.addEventListener('click', () => onEditSave(app.id, nameInput.value, urlInput.value));
+  save.addEventListener('click', () =>
+    onEditSave(app.id, nameInput.value, urlInput.value, keepBox ? keepBox.checked : true),
+  );
 
   const cancel = document.createElement('button');
   cancel.type = 'button';
@@ -105,12 +158,18 @@ function renderEditRow(app) {
     renderList();
   });
 
-  li.append(grow, save, cancel);
+  const actions = document.createElement('div');
+  actions.className = 'edit-actions';
+  actions.append(save, cancel);
+  li.append(actions);
+
   return li;
 }
 
-async function onEditSave(oldId, name, url) {
-  const updated = normalizeApp({ name, url, source: 'manual' });
+async function onEditSave(oldId, name, url, keep) {
+  // keep=true pins the edit as a manual app (sync leaves it alone); keep=false
+  // leaves it tagged 'myapps', so a future sync may overwrite or remove it.
+  const updated = normalizeApp({ name, url, source: keep ? 'manual' : 'myapps' });
   if (!updated) {
     setStatus('Enter a name and a valid https:// URL.');
     return;
@@ -122,7 +181,11 @@ async function onEditSave(oldId, name, url) {
   await saveApps(apps);
   editingId = null;
   renderList();
-  setStatus(`Saved “${updated.name}”.`);
+  setStatus(
+    keep
+      ? `Saved “${updated.name}”.`
+      : `Saved “${updated.name}” — still linked to My Apps, so a future sync may overwrite it.`,
+  );
 }
 
 async function onAdd(e) {
@@ -285,11 +348,90 @@ async function onImportFile(e) {
   }
 }
 
+// AWS commercial regions, eu-central first (Frankfurt + Zurich) per request.
+const AWS_REGIONS = [
+  [
+    'Recommended',
+    [
+      ['eu-central-1', 'Europe (Frankfurt)'],
+      ['eu-central-2', 'Europe (Zurich)'],
+    ],
+  ],
+  [
+    'Europe',
+    [
+      ['eu-west-1', 'Ireland'],
+      ['eu-west-2', 'London'],
+      ['eu-west-3', 'Paris'],
+      ['eu-north-1', 'Stockholm'],
+      ['eu-south-1', 'Milan'],
+      ['eu-south-2', 'Spain'],
+    ],
+  ],
+  [
+    'Americas',
+    [
+      ['us-east-1', 'N. Virginia'],
+      ['us-east-2', 'Ohio'],
+      ['us-west-1', 'N. California'],
+      ['us-west-2', 'Oregon'],
+      ['ca-central-1', 'Canada Central'],
+      ['ca-west-1', 'Calgary'],
+      ['sa-east-1', 'São Paulo'],
+      ['mx-central-1', 'Mexico'],
+    ],
+  ],
+  [
+    'Asia Pacific',
+    [
+      ['ap-south-1', 'Mumbai'],
+      ['ap-south-2', 'Hyderabad'],
+      ['ap-southeast-1', 'Singapore'],
+      ['ap-southeast-2', 'Sydney'],
+      ['ap-southeast-3', 'Jakarta'],
+      ['ap-southeast-4', 'Melbourne'],
+      ['ap-northeast-1', 'Tokyo'],
+      ['ap-northeast-2', 'Seoul'],
+      ['ap-northeast-3', 'Osaka'],
+      ['ap-east-1', 'Hong Kong'],
+    ],
+  ],
+  [
+    'Middle East & Africa',
+    [
+      ['me-central-1', 'UAE'],
+      ['me-south-1', 'Bahrain'],
+      ['il-central-1', 'Tel Aviv'],
+      ['af-south-1', 'Cape Town'],
+    ],
+  ],
+];
+
+function populateRegions() {
+  const sel = document.getElementById('aws-region');
+  const off = document.createElement('option');
+  off.value = '';
+  off.textContent = "Off — don't change region";
+  sel.append(off);
+  for (const [groupLabel, regions] of AWS_REGIONS) {
+    const og = document.createElement('optgroup');
+    og.label = groupLabel;
+    for (const [code, city] of regions) {
+      const o = document.createElement('option');
+      o.value = code;
+      o.textContent = `${code} — ${city}`;
+      og.append(o);
+    }
+    sel.append(og);
+  }
+}
+
 async function loadSettings() {
   const settings = await getSettings();
   document.getElementById('open-in-new-tab').checked = settings.openInNewTab;
   document.getElementById('close-after-launch').checked = settings.closeAfterLaunch;
   document.getElementById('fallback-search').value = settings.fallbackSearch;
+  document.getElementById('aws-region').value = settings.awsRegion;
 }
 
 async function onSettingChange() {
@@ -297,6 +439,7 @@ async function onSettingChange() {
     openInNewTab: document.getElementById('open-in-new-tab').checked,
     closeAfterLaunch: document.getElementById('close-after-launch').checked,
     fallbackSearch: document.getElementById('fallback-search').value,
+    awsRegion: document.getElementById('aws-region').value.trim(),
   });
   setStatus('Settings saved.');
 }

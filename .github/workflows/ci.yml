@@ -39,14 +39,17 @@ jobs:
       - name: Test with coverage
         run: npm run test:coverage
 
-      - name: Build & package
+      - name: Build & package (Chrome + Firefox)
         run: npm run package
 
-      - name: Upload extension build
+      - name: Lint Firefox build (web-ext)
+        run: npx --yes web-ext@latest lint --source-dir=dist-firefox --warnings-as-errors=false
+
+      - name: Upload extension builds
         uses: actions/upload-artifact@v6
         with:
           name: extension
-          path: myapps-launcher-v*.zip
+          path: myapps-launcher*.zip
           if-no-files-found: error
 
       - name: Upload coverage

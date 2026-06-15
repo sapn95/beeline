@@ -1,38 +1,64 @@
-// Builds the loadable/publishable extension into dist/ by copying src/ and
-// stamping the manifest version from package.json (single source of truth).
-// Pass --zip to also produce the upload archive for the Chrome Web Store.
+// Builds the loadable/publishable extension by copying src/ and stamping the
+// manifest version from package.json (single source of truth).
+//
+//   node scripts/build.mjs            -> dist/          (Chrome, MV3 service worker)
+//   node scripts/build.mjs --firefox  -> dist-firefox/  (Firefox event page + gecko id)
+//   add --zip to also produce the upload archive.
+//
+// One source tree, two targets: the only per-browser differences are the
+// background declaration and the Firefox-required browser_specific_settings.
 
 import { cpSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const args = process.argv.slice(2);
+const firefox = args.includes('--firefox');
+const zip = args.includes('--zip');
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src');
-const DIST = join(ROOT, 'dist');
+const OUT = join(ROOT, firefox ? 'dist-firefox' : 'dist');
 
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 
-rmSync(DIST, { recursive: true, force: true });
-mkdirSync(DIST, { recursive: true });
-cpSync(SRC, DIST, { recursive: true });
+rmSync(OUT, { recursive: true, force: true });
+mkdirSync(OUT, { recursive: true });
+cpSync(SRC, OUT, { recursive: true });
 
-const manifestPath = join(DIST, 'manifest.json');
+const manifestPath = join(OUT, 'manifest.json');
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 manifest.version = pkg.version;
+
+if (firefox) {
+  // Firefox's stable MV3 background is an event page (scripts), not a service
+  // worker; and a gecko id is required for storage.sync + AMO signing.
+  manifest.background = { scripts: ['background.js'], type: 'module' };
+  manifest.browser_specific_settings = {
+    gecko: { id: 'beeline@sapn95.github.io', strict_min_version: '128.0' },
+  };
+  // NOTE: when you submit to AMO, Firefox may ask for a data-collection
+  // declaration (manifest key data_collection_permissions, or the AMO listing
+  // UI). Beeline collects nothing off-device → declare "No data collected".
+}
+
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-if (!existsSync(join(DIST, 'icons', 'icon-128.png'))) {
+if (!existsSync(join(OUT, 'icons', 'icon-128.png'))) {
   throw new Error('icons missing — run `npm run icons` first');
 }
 
-console.log(`built dist/ for v${pkg.version}`);
+console.log(
+  `built ${firefox ? 'dist-firefox' : 'dist'}/ for v${pkg.version} (${firefox ? 'firefox' : 'chrome'})`,
+);
 
-if (process.argv.includes('--zip')) {
-  const zipName = `myapps-launcher-v${pkg.version}.zip`;
+if (zip) {
+  const zipName = firefox
+    ? `myapps-launcher-firefox-v${pkg.version}.zip`
+    : `myapps-launcher-v${pkg.version}.zip`;
   rmSync(join(ROOT, zipName), { force: true });
-  // Zip the *contents* of dist/ so manifest.json sits at the archive root,
-  // which is what the Chrome Web Store expects.
-  execFileSync('zip', ['-r', '-X', join(ROOT, zipName), '.'], { cwd: DIST, stdio: 'inherit' });
+  // Zip the *contents* of the out dir so manifest.json sits at the archive root.
+  execFileSync('zip', ['-r', '-X', join(ROOT, zipName), '.'], { cwd: OUT, stdio: 'inherit' });
   console.log(`packaged ${zipName}`);
 }

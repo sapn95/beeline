@@ -94,3 +94,29 @@ export function reconcileApps(existing, scraped) {
   }
   return [...map.values()];
 }
+
+/** For apps with "aws" in the name, steer the launch to a given AWS region:
+ * - a direct AWS console URL gets a `region` query param;
+ * - an IdP-initiated SSO launcher URL gets a SAML `RelayState` pointing at the
+ *   regional console (whether Entra honours this is tenant-dependent — test it).
+ * No-ops when region is empty, the name has no "aws", a RelayState already
+ * exists, or the URL can't be parsed. Pure + unit-tested. */
+export function withAwsRegion(url, name, region) {
+  if (!region || !/aws/i.test(String(name ?? ''))) return url;
+  try {
+    const u = new URL(url);
+    if (/(^|\.)(console\.)?aws\.amazon\.com$/i.test(u.host)) {
+      if (!u.searchParams.has('region')) u.searchParams.set('region', region);
+      return u.toString();
+    }
+    if (!u.searchParams.has('RelayState')) {
+      u.searchParams.set(
+        'RelayState',
+        `https://console.aws.amazon.com/console/home?region=${region}`,
+      );
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}

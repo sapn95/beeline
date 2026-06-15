@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = {
   openInNewTab: true,
   closeAfterLaunch: true,
   fallbackSearch: 'myapps', // 'myapps' | 'web' | 'both' | 'off'
+  awsRegion: '', // when set, apps with "aws" in the name launch into this region
 };
 
 function syncArea() {

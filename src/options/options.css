@@ -133,14 +133,33 @@ input[type='checkbox'] {
   color: var(--fg);
 }
 
+.apps li.editing {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
 .grow.edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+}
+
+.grow.edit input {
+  width: 100%;
+  flex: none;
+}
+
+.edit-actions {
   display: flex;
   gap: 8px;
 }
 
-.grow.edit input {
-  flex: 1 1 auto;
-  min-width: 0;
+.edit-note {
+  font-size: 13px;
+  color: var(--muted);
+  align-items: flex-start;
 }
 
 kbd {
@@ -154,6 +173,8 @@ kbd {
   list-style: none;
   margin: 12px 0 0;
   padding: 0;
+  max-height: 52vh;
+  overflow-y: auto;
 }
 
 .apps li {
@@ -193,4 +214,32 @@ kbd {
   color: var(--muted);
   font-size: 12px;
   text-align: center;
+}
+
+#app-filter {
+  width: 100%;
+  margin: 12px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+}
+
+.badge {
+  flex: none;
+  font-size: 11px;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.apps li.empty-row {
+  display: block;
+  border: none;
+  color: var(--muted);
+  padding: 16px 2px;
 }

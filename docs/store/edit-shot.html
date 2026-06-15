@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Verification mock for the options edit row (reuses the real CSS). -->
+    <link rel="stylesheet" href="../../src/options/options.css" />
+  </head>
+  <body>
+    <main>
+      <section>
+        <div class="row between">
+          <h2>Your apps (<span>140</span>)</h2>
+          <button type="button" class="danger">Remove all</button>
+        </div>
+        <ul class="apps">
+          <li>
+            <div class="grow">
+              <div class="app-name">Calendar</div>
+              <div class="app-url">https://outlook.office.com/calendar/</div>
+            </div>
+            <button type="button">Edit</button>
+            <button type="button" class="danger">Remove</button>
+          </li>
+          <li class="editing">
+            <div class="grow edit">
+              <input type="text" value="Calendar" aria-label="App name" />
+              <input
+                type="url"
+                value="https://outlook.office.com/calendar/?realm=sbb.ch&login_hint=sebastian.winterberger2@sbb.ch"
+                aria-label="App URL"
+              />
+            </div>
+            <label class="check edit-note">
+              <input type="checkbox" checked /> This app was imported from My Apps. Keep my changes
+              — otherwise the next sync overwrites or removes it.
+            </label>
+            <div class="edit-actions">
+              <button type="button">Save</button>
+              <button type="button">Cancel</button>
+            </div>
+          </li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,5 +1,6 @@
 import { getApps, getStats, getSettings, recordLaunch } from '../lib/storage.js';
 import { rankApps, hostOf } from '../lib/ranking.js';
+import { withAwsRegion } from '../lib/apps.js';
 
 const searchEl = document.getElementById('search');
 const resultsEl = document.getElementById('results');
@@ -7,7 +8,12 @@ const emptyEl = document.getElementById('empty');
 
 let apps = [];
 let stats = {};
-let settings = { openInNewTab: true, closeAfterLaunch: true, fallbackSearch: 'myapps' };
+let settings = {
+  openInNewTab: true,
+  closeAfterLaunch: true,
+  fallbackSearch: 'myapps',
+  awsRegion: '',
+};
 let current = [];
 let selected = 0;
 
@@ -151,7 +157,10 @@ function onKeyDown(e) {
     move(-1);
   } else if (e.key === 'Enter') {
     e.preventDefault();
-    launch(selected);
+    launch(selected, e.ctrlKey || e.metaKey); // Ctrl/Cmd+Enter → background tab
+  } else if (e.altKey && e.key >= '1' && e.key <= '9') {
+    e.preventDefault();
+    launch(Number(e.key) - 1); // Alt+1–9 → quick-launch that result
   } else if (e.key === 'Escape') {
     e.preventDefault();
     if (searchEl.value) {
@@ -180,7 +189,7 @@ function updateSelection() {
   if (el) el.scrollIntoView({ block: 'nearest' });
 }
 
-async function launch(i) {
+async function launch(i, background = false) {
   const r = current[i];
   if (!r) return;
   if (r.fallback) {
@@ -188,10 +197,15 @@ async function launch(i) {
     return;
   }
   await recordLaunch(r.app.id, Date.now());
+  const target = withAwsRegion(r.app.url, r.app.name, settings.awsRegion);
+  if (background) {
+    chrome.tabs.create({ url: target, active: false });
+    return; // keep the popup open so you can launch several in a row
+  }
   if (settings.openInNewTab) {
-    chrome.tabs.create({ url: r.app.url });
+    chrome.tabs.create({ url: target });
   } else {
-    chrome.tabs.update({ url: r.app.url });
+    chrome.tabs.update({ url: target });
   }
   if (settings.closeAfterLaunch) window.close();
 }
