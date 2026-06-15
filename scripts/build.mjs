@@ -25,7 +25,8 @@ const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
-cpSync(SRC, OUT, { recursive: true });
+// Skip macOS Finder cruft so it never lands in the package (AMO flags it).
+cpSync(SRC, OUT, { recursive: true, filter: (s) => !s.endsWith('.DS_Store') });
 
 const manifestPath = join(OUT, 'manifest.json');
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -63,6 +64,9 @@ if (zip) {
     : `myapps-launcher-v${pkg.version}.zip`;
   rmSync(join(ROOT, zipName), { force: true });
   // Zip the *contents* of the out dir so manifest.json sits at the archive root.
-  execFileSync('zip', ['-r', '-X', join(ROOT, zipName), '.'], { cwd: OUT, stdio: 'inherit' });
+  execFileSync('zip', ['-r', '-X', join(ROOT, zipName), '.', '-x', '*.DS_Store'], {
+    cwd: OUT,
+    stdio: 'inherit',
+  });
   console.log(`packaged ${zipName}`);
 }
