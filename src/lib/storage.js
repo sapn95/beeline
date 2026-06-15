@@ -1,14 +1,11 @@
 // Promise wrappers around chrome.storage.
 //
-// The curated app list lives in `sync` so it follows the user across their
-// signed-in Chrome instances. The high-write, device-specific launch stats live
-// in `local`. Settings are small and live in `sync`.
-//
-// NOTE: chrome.storage.sync has an ~8 KB-per-item / ~100 KB-total quota. A very
-// large app list could exceed it; if that ever happens, move APPS_KEY to
-// `local` (see docs/architecture.md). All accessors degrade gracefully to
-// in-memory defaults when chrome.storage is unavailable (e.g. in unit tests
-// that don't stub it).
+// The app list and launch stats live in `local` — a My Apps import can pull
+// 100+ apps, which blows past chrome.storage.sync's ~8 KB-per-item quota and
+// makes set() fail. `local` has a ~10 MB budget. Small user settings stay in
+// `sync` so they follow the user across signed-in Chrome instances. All
+// accessors degrade gracefully to in-memory defaults when chrome.storage is
+// unavailable (e.g. in unit tests that don't stub it).
 
 const APPS_KEY = 'apps';
 const STATS_KEY = 'stats';
@@ -25,14 +22,14 @@ function localArea() {
 }
 
 export async function getApps() {
-  const area = syncArea();
+  const area = localArea();
   if (!area) return [];
   const res = await area.get(APPS_KEY);
   return Array.isArray(res && res[APPS_KEY]) ? res[APPS_KEY] : [];
 }
 
 export async function saveApps(apps) {
-  const area = syncArea();
+  const area = localArea();
   if (area) await area.set({ [APPS_KEY]: apps });
 }
 

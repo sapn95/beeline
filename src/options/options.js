@@ -106,15 +106,15 @@ function scrollMyAppsToBottom() {
   return document.body.scrollHeight;
 }
 
-// Make sure a My Apps tab exists and is focused; returns its tab id.
-async function ensureMyAppsTab() {
-  const [existing] = await chrome.tabs.query({ url: MYAPPS_PATTERN });
-  if (existing) {
-    await chrome.tabs.update(existing.id, { active: true });
-    return existing.id;
+// Bring the Beeline settings page back to the foreground after an import.
+async function focusSelf() {
+  const self = await chrome.tabs.getCurrent();
+  if (self) {
+    await chrome.tabs.update(self.id, { active: true });
+    if (self.windowId != null) await chrome.windows.update(self.windowId, { focused: true });
+  } else if (chrome.runtime.openOptionsPage) {
+    chrome.runtime.openOptionsPage();
   }
-  const created = await chrome.tabs.create({ url: MYAPPS_ORIGIN, active: true });
-  return created.id;
 }
 
 // Scroll + scrape one round. Returns the app array, or null when the page is
@@ -140,19 +140,25 @@ async function onImportMyApps() {
     return;
   }
 
-  const selfTab = await chrome.tabs.getCurrent();
-  const tabId = await ensureMyAppsTab();
+  // Reuse an open My Apps tab (scraped in the background so you stay on this
+  // page); only open + focus a new one if none exists, so you can sign in.
+  let [tab] = await chrome.tabs.query({ url: MYAPPS_PATTERN });
+  if (tab) {
+    setStatus('Importing from My Apps…');
+  } else {
+    tab = await chrome.tabs.create({ url: MYAPPS_ORIGIN, active: true });
+    setStatus('Opened My Apps — sign in if asked. Importing…');
+  }
 
   // Poll for up to ~60s so a single click covers signing in AND the SPA
   // lazy-loading its tiles. Keep the largest stable result we have seen, and
   // scroll each round so virtualised/long app grids are fully loaded.
-  setStatus('Waiting for My Apps to load (sign in if asked)…');
   const deadline = Date.now() + 60000;
   let best = [];
   let stableRounds = 0;
   while (Date.now() < deadline && stableRounds < 3) {
     await sleep(1200);
-    const found = await scrapeTab(tabId);
+    const found = await scrapeTab(tab.id);
     if (found === null) {
       setStatus('Waiting for you to sign in to My Apps…');
       continue;
@@ -166,7 +172,7 @@ async function onImportMyApps() {
     }
   }
 
-  if (selfTab) await chrome.tabs.update(selfTab.id, { active: true });
+  await focusSelf(); // always end on the Beeline settings page
 
   if (best.length === 0) {
     setStatus(
@@ -176,8 +182,14 @@ async function onImportMyApps() {
   }
 
   const before = apps.length;
-  apps = mergeApps(apps, best);
-  await saveApps(apps);
+  const merged = mergeApps(apps, best);
+  try {
+    await saveApps(merged);
+  } catch (err) {
+    setStatus(`Found ${best.length} app(s) but saving failed: ${err.message}`);
+    return;
+  }
+  apps = merged;
   renderList();
   setStatus(
     `Imported ${best.length} app(s) — ${apps.length - before} new. ` +

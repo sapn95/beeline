@@ -110,6 +110,12 @@ button.danger {
   color: var(--fg);
 }
 
+input[type='checkbox'] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+
 kbd {
   border: 1px solid var(--border);
   border-radius: 4px;
