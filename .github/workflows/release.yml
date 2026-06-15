@@ -69,17 +69,22 @@ jobs:
           CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           ZIP="$(ls myapps-launcher-v*.zip)"
           echo "Uploading $ZIP"
-          npx --yes chrome-webstore-upload-cli@3 upload \
-            --source "$ZIP" \
-            --extension-id "$EXTENSION_ID" \
-            --client-id "$CLIENT_ID" \
-            --client-secret "$CLIENT_SECRET" \
-            --refresh-token "$REFRESH_TOKEN"
+          if ! out="$(npx --yes chrome-webstore-upload-cli@3 upload \
+            --source "$ZIP" --extension-id "$EXTENSION_ID" --client-id "$CLIENT_ID" \
+            --client-secret "$CLIENT_SECRET" --refresh-token "$REFRESH_TOKEN" 2>&1)"; then
+            echo "$out"
+            # The store rejects uploads while a prior submission is in review.
+            # Treat that as a soft skip (the GitHub release still succeeded).
+            if echo "$out" | grep -qi "ITEM_NOT_UPDATABLE\|pending review"; then
+              echo "::warning::A previous submission is still in review — this version was not uploaded. Re-run the release once it is published, or cancel the pending submission first."
+              exit 0
+            fi
+            exit 1
+          fi
+          echo "$out"
           npx --yes chrome-webstore-upload-cli@3 publish \
-            --extension-id "$EXTENSION_ID" \
-            --client-id "$CLIENT_ID" \
-            --client-secret "$CLIENT_SECRET" \
-            --refresh-token "$REFRESH_TOKEN"
+            --extension-id "$EXTENSION_ID" --client-id "$CLIENT_ID" \
+            --client-secret "$CLIENT_SECRET" --refresh-token "$REFRESH_TOKEN"
