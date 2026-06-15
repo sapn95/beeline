@@ -85,6 +85,17 @@ jobs:
             exit 1
           fi
           echo "$out"
-          npx --yes chrome-webstore-upload-cli@3 publish \
+          if ! pub="$(npx --yes chrome-webstore-upload-cli@3 publish \
             --extension-id "$EXTENSION_ID" --client-id "$CLIENT_ID" \
-            --client-secret "$CLIENT_SECRET" --refresh-token "$REFRESH_TOKEN"
+            --client-secret "$CLIENT_SECRET" --refresh-token "$REFRESH_TOKEN" 2>&1)"; then
+            echo "$pub"
+            # Upload already succeeded; auto-publish can be gated on the dashboard
+            # Privacy-practices tab (e.g. after adding a permission). Soft-skip so
+            # the run stays green — finish + publish in the dashboard.
+            if echo "$pub" | grep -qi "Publish condition not met\|privacy"; then
+              echo "::warning::Uploaded OK, but auto-publish is blocked until the Privacy practices tab is completed (new permissions need a justification). Finish it in the dashboard, then click Publish there or re-run this workflow."
+              exit 0
+            fi
+            exit 1
+          fi
+          echo "$pub"
