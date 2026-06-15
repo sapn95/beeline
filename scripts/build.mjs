@@ -36,11 +36,14 @@ if (firefox) {
   // worker; and a gecko id is required for storage.sync + AMO signing.
   manifest.background = { scripts: ['background.js'], type: 'module' };
   manifest.browser_specific_settings = {
-    gecko: { id: 'beeline@sapn95.github.io', strict_min_version: '128.0' },
+    gecko: {
+      id: 'beeline@sapn95.github.io',
+      strict_min_version: '128.0',
+      // AMO requires this for new add-ons. Beeline transmits nothing off-device,
+      // so we declare "no data collected".
+      data_collection_permissions: { required: ['none'] },
+    },
   };
-  // NOTE: when you submit to AMO, Firefox may ask for a data-collection
-  // declaration (manifest key data_collection_permissions, or the AMO listing
-  // UI). Beeline collects nothing off-device → declare "No data collected".
 }
 
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
