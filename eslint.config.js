@@ -4,7 +4,7 @@ import globals from 'globals';
 export default [
   js.configs.recommended,
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**'],
+    ignores: ['dist/**', 'dist-firefox/**', 'coverage/**', 'node_modules/**'],
   },
   {
     files: ['src/**/*.js'],

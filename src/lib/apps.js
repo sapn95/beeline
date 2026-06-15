@@ -30,7 +30,7 @@ export function appId(url) {
   const s = canonicalUrl(url);
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
+    h ^= s.codePointAt(i);
     h = Math.imul(h, 0x01000193);
   }
   return (h >>> 0).toString(16).padStart(8, '0');
@@ -58,7 +58,7 @@ export function normalizeApp(raw) {
 export function dedupeApps(apps) {
   const seen = new Map();
   for (const app of apps) {
-    if (app && app.id && !seen.has(app.id)) seen.set(app.id, app);
+    if (app?.id && !seen.has(app.id)) seen.set(app.id, app);
   }
   return [...seen.values()];
 }

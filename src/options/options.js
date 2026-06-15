@@ -332,7 +332,7 @@ function onExport() {
 }
 
 async function onImportFile(e) {
-  const file = e.target.files && e.target.files[0];
+  const file = e.target.files?.[0];
   if (!file) return;
   try {
     const parsed = JSON.parse(await file.text());
@@ -444,4 +444,4 @@ async function onSettingChange() {
   setStatus('Settings saved.');
 }
 
-init();
+await init();

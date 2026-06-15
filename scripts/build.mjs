@@ -13,9 +13,9 @@ import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const args = process.argv.slice(2);
-const firefox = args.includes('--firefox');
-const zip = args.includes('--zip');
+const flags = new Set(process.argv.slice(2));
+const firefox = flags.has('--firefox');
+const zip = flags.has('--zip');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src');
@@ -38,11 +38,12 @@ if (firefox) {
   manifest.browser_specific_settings = {
     gecko: {
       id: 'beeline@sapn95.github.io',
-      strict_min_version: '128.0',
-      // AMO requires this for new add-ons. Beeline transmits nothing off-device,
-      // so we declare "no data collected".
+      // data_collection_permissions is required by AMO and needs Firefox 140+
+      // (Android 142+). Beeline transmits nothing off-device → "no data".
+      strict_min_version: '140.0',
       data_collection_permissions: { required: ['none'] },
     },
+    gecko_android: { strict_min_version: '142.0' },
   };
 }
 

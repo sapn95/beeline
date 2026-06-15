@@ -41,7 +41,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // Auto-sync whenever you land on My Apps.
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   if (info.status !== 'complete') return;
-  if (!tab.url || !tab.url.startsWith(MYAPPS_PREFIX)) return;
+  if (!tab.url?.startsWith(MYAPPS_PREFIX)) return;
   const now = Date.now();
   if (now - (lastSync.get(tabId) || 0) < VISIT_DEBOUNCE_MS) return;
   lastSync.set(tabId, now);

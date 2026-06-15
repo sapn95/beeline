@@ -107,7 +107,10 @@ describe('reconcileApps', () => {
     ]);
     const result = reconcileApps(existing, [{ name: 'Fresh', url: 'https://new.com' }]);
 
-    expect(result.map((a) => a.url).sort()).toEqual(['https://manual.com/', 'https://new.com/']);
+    expect(result.map((a) => a.url).sort((x, y) => x.localeCompare(y))).toEqual([
+      'https://manual.com/',
+      'https://new.com/',
+    ]);
     expect(result.find((a) => a.url === 'https://manual.com/').source).toBe('manual');
     expect(result.find((a) => a.url === 'https://new.com/').source).toBe('myapps');
     expect(result.find((a) => a.url === 'https://old.com/')).toBeUndefined();

@@ -38,7 +38,7 @@ function render() {
     current = buildFallbacks(q);
   }
   selected = 0;
-  resultsEl.replaceChildren(...current.map(renderItem));
+  resultsEl.replaceChildren(...current.map((r, i) => renderItem(r, i)));
   updateSelection();
 }
 
@@ -55,7 +55,6 @@ function renderItem(r, i) {
 
   const li = document.createElement('li');
   li.className = 'item';
-  li.setAttribute('role', 'option');
   li.dataset.index = String(i);
 
   const icon = document.createElement('span');
@@ -95,7 +94,6 @@ function renderItem(r, i) {
 function renderFallbackItem(r, i) {
   const li = document.createElement('li');
   li.className = 'item';
-  li.setAttribute('role', 'option');
   li.dataset.index = String(i);
 
   const icon = document.createElement('span');
@@ -181,9 +179,7 @@ function move(delta) {
 function updateSelection() {
   const items = resultsEl.children;
   for (let i = 0; i < items.length; i++) {
-    const isSel = i === selected;
-    items[i].classList.toggle('selected', isSel);
-    items[i].setAttribute('aria-selected', isSel ? 'true' : 'false');
+    items[i].classList.toggle('selected', i === selected);
   }
   const el = items[selected];
   if (el) el.scrollIntoView({ block: 'nearest' });
@@ -231,4 +227,4 @@ function openOptions() {
   }
 }
 
-init();
+await init();

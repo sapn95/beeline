@@ -30,7 +30,7 @@ export async function getApps() {
   const area = localArea();
   if (!area) return [];
   const res = await area.get(APPS_KEY);
-  return Array.isArray(res && res[APPS_KEY]) ? res[APPS_KEY] : [];
+  return Array.isArray(res?.[APPS_KEY]) ? res[APPS_KEY] : [];
 }
 
 export async function saveApps(apps) {
@@ -42,7 +42,7 @@ export async function getStats() {
   const area = localArea();
   if (!area) return {};
   const res = await area.get(STATS_KEY);
-  const stats = res && res[STATS_KEY];
+  const stats = res?.[STATS_KEY];
   return stats && typeof stats === 'object' ? stats : {};
 }
 
@@ -59,7 +59,7 @@ export async function getSettings() {
   const area = syncArea();
   if (!area) return { ...DEFAULT_SETTINGS };
   const res = await area.get(SETTINGS_KEY);
-  return { ...DEFAULT_SETTINGS, ...((res && res[SETTINGS_KEY]) || {}) };
+  return { ...DEFAULT_SETTINGS, ...res?.[SETTINGS_KEY] };
 }
 
 export async function saveSettings(settings) {
