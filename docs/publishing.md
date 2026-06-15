@@ -5,8 +5,8 @@ The **first** publish must be done by hand because the store requires a human to
 create the listing (screenshots, description, privacy disclosures). After that,
 tagging a version ships a new release automatically.
 
-> **This extension** — item ID `ahcijednjdoigcipppnkklglmlndkhka`
-> (store: <https://chromewebstore.google.com/detail/ahcijednjdoigcipppnkklglmlndkhka>).
+> **This extension** — item ID `ahcijedndjdoigcipppnkklgmlndkhka`
+> (store: <https://chromewebstore.google.com/detail/ahcijedndjdoigcipppnkklgmlndkhka>).
 > First listing submitted for review on 2026-06-12. That item ID is the value for
 > the `CHROME_EXTENSION_ID` secret below.
 
@@ -52,7 +52,7 @@ Follow Google's guide:
 ### 4. Add the four GitHub Actions secrets
 
 ```bash
-gh secret set CHROME_EXTENSION_ID  --body "ahcijednjdoigcipppnkklglmlndkhka"
+gh secret set CHROME_EXTENSION_ID  --body "ahcijedndjdoigcipppnkklgmlndkhka"
 gh secret set CHROME_CLIENT_ID     --body "<client id>"
 gh secret set CHROME_CLIENT_SECRET --body "<client secret>"
 gh secret set CHROME_REFRESH_TOKEN --body "<refresh token>"
