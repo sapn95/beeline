@@ -17,7 +17,7 @@
     "type": "module"
   },
   "options_page": "options/options.html",
-  "permissions": ["storage", "scripting"],
+  "permissions": ["storage", "scripting", "alarms", "search"],
   "optional_host_permissions": ["https://myapplications.microsoft.com/*"],
   "commands": {
     "_execute_action": {

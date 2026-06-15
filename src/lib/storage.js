@@ -11,7 +11,11 @@ const APPS_KEY = 'apps';
 const STATS_KEY = 'stats';
 const SETTINGS_KEY = 'settings';
 
-export const DEFAULT_SETTINGS = { openInNewTab: true, closeAfterLaunch: true };
+export const DEFAULT_SETTINGS = {
+  openInNewTab: true,
+  closeAfterLaunch: true,
+  fallbackSearch: 'myapps', // 'myapps' | 'web' | 'both' | 'off'
+};
 
 function syncArea() {
   return globalThis.chrome && chrome.storage ? chrome.storage.sync : null;

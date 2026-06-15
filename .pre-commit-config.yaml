@@ -2,7 +2,7 @@
 # detect-private-key keep secrets and keys out of the repo.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -14,7 +14,7 @@ repos:
         args: ['--allow-missing-credentials']
 
   - repo: https://github.com/gitguardian/ggshield
-    rev: v1.34.0
+    rev: v1.51.0
     hooks:
       - id: ggshield
         language_version: python3

@@ -116,6 +116,33 @@ input[type='checkbox'] {
   height: 16px;
 }
 
+.select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 4px;
+  color: var(--fg);
+}
+
+.select select {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+}
+
+.grow.edit {
+  display: flex;
+  gap: 8px;
+}
+
+.grow.edit input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 kbd {
   border: 1px solid var(--border);
   border-radius: 4px;

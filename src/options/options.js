@@ -1,5 +1,5 @@
 import { getApps, saveApps, getSettings, saveSettings } from '../lib/storage.js';
-import { normalizeApp, mergeApps } from '../lib/apps.js';
+import { normalizeApp, mergeApps, reconcileApps } from '../lib/apps.js';
 import { scrapeAppsFromDocument } from '../lib/importer.js';
 
 const MYAPPS_ORIGIN = 'https://myapplications.microsoft.com/';
@@ -10,6 +10,7 @@ const countEl = document.getElementById('count');
 const statusEl = document.getElementById('status');
 
 let apps = [];
+let editingId = null;
 
 async function init() {
   apps = await getApps();
@@ -23,6 +24,7 @@ async function init() {
   document.getElementById('clear').addEventListener('click', onClear);
   document.getElementById('open-in-new-tab').addEventListener('change', onSettingChange);
   document.getElementById('close-after-launch').addEventListener('change', onSettingChange);
+  document.getElementById('fallback-search').addEventListener('change', onSettingChange);
 
   // Show the running version (read from the manifest, so it always matches).
   const footer = document.createElement('footer');
@@ -37,40 +39,97 @@ function setStatus(msg) {
 
 function renderList() {
   countEl.textContent = String(apps.length);
-  listEl.replaceChildren(
-    ...apps
-      .slice()
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((app) => {
-        const li = document.createElement('li');
+  const rows = apps
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((app) => (app.id === editingId ? renderEditRow(app) : renderRow(app)));
+  listEl.replaceChildren(...rows);
+}
 
-        const grow = document.createElement('div');
-        grow.className = 'grow';
-        const name = document.createElement('div');
-        name.className = 'app-name';
-        name.textContent = app.name;
-        const url = document.createElement('div');
-        url.className = 'app-url';
-        url.textContent = app.url;
-        grow.append(name, url);
+function renderRow(app) {
+  const li = document.createElement('li');
 
-        const del = document.createElement('button');
-        del.type = 'button';
-        del.className = 'danger';
-        del.textContent = 'Remove';
-        del.addEventListener('click', () => onDelete(app.id));
+  const grow = document.createElement('div');
+  grow.className = 'grow';
+  const name = document.createElement('div');
+  name.className = 'app-name';
+  name.textContent = app.name;
+  const url = document.createElement('div');
+  url.className = 'app-url';
+  url.textContent = app.url;
+  grow.append(name, url);
 
-        li.append(grow, del);
-        return li;
-      }),
+  const edit = document.createElement('button');
+  edit.type = 'button';
+  edit.textContent = 'Edit';
+  edit.addEventListener('click', () => {
+    editingId = app.id;
+    renderList();
+  });
+
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'danger';
+  del.textContent = 'Remove';
+  del.addEventListener('click', () => onDelete(app.id));
+
+  li.append(grow, edit, del);
+  return li;
+}
+
+function renderEditRow(app) {
+  const li = document.createElement('li');
+
+  const grow = document.createElement('div');
+  grow.className = 'grow edit';
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.value = app.name;
+  nameInput.setAttribute('aria-label', 'App name');
+  const urlInput = document.createElement('input');
+  urlInput.type = 'url';
+  urlInput.value = app.url;
+  urlInput.setAttribute('aria-label', 'App URL');
+  grow.append(nameInput, urlInput);
+
+  const save = document.createElement('button');
+  save.type = 'button';
+  save.textContent = 'Save';
+  save.addEventListener('click', () => onEditSave(app.id, nameInput.value, urlInput.value));
+
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.textContent = 'Cancel';
+  cancel.addEventListener('click', () => {
+    editingId = null;
+    renderList();
+  });
+
+  li.append(grow, save, cancel);
+  return li;
+}
+
+async function onEditSave(oldId, name, url) {
+  const updated = normalizeApp({ name, url, source: 'manual' });
+  if (!updated) {
+    setStatus('Enter a name and a valid https:// URL.');
+    return;
+  }
+  apps = mergeApps(
+    apps.filter((a) => a.id !== oldId),
+    [updated],
   );
+  await saveApps(apps);
+  editingId = null;
+  renderList();
+  setStatus(`Saved “${updated.name}”.`);
 }
 
 async function onAdd(e) {
   e.preventDefault();
   const name = document.getElementById('name').value;
   const url = document.getElementById('url').value;
-  const app = normalizeApp({ name, url });
+  const app = normalizeApp({ name, url, source: 'manual' });
   if (!app) {
     setStatus('Enter a name and a valid https:// URL.');
     return;
@@ -182,19 +241,20 @@ async function onImportMyApps() {
   }
 
   const before = apps.length;
-  const merged = mergeApps(apps, best);
+  const reconciled = reconcileApps(apps, best);
   try {
-    await saveApps(merged);
+    await saveApps(reconciled);
   } catch (err) {
     setStatus(`Found ${best.length} app(s) but saving failed: ${err.message}`);
     return;
   }
-  apps = merged;
+  apps = reconciled;
   renderList();
-  setStatus(
-    `Imported ${best.length} app(s) — ${apps.length - before} new. ` +
-      'Run Import again anytime to pick up apps you add later.',
-  );
+  const delta = apps.length - before;
+  let change = 'no change';
+  if (delta > 0) change = `+${delta}`;
+  else if (delta < 0) change = String(delta);
+  setStatus(`Synced ${best.length} app(s) from My Apps (${change}). Your manual apps are kept.`);
 }
 
 function onExport() {
@@ -229,12 +289,14 @@ async function loadSettings() {
   const settings = await getSettings();
   document.getElementById('open-in-new-tab').checked = settings.openInNewTab;
   document.getElementById('close-after-launch').checked = settings.closeAfterLaunch;
+  document.getElementById('fallback-search').value = settings.fallbackSearch;
 }
 
 async function onSettingChange() {
   await saveSettings({
     openInNewTab: document.getElementById('open-in-new-tab').checked,
     closeAfterLaunch: document.getElementById('close-after-launch').checked,
+    fallbackSearch: document.getElementById('fallback-search').value,
   });
   setStatus('Settings saved.');
 }

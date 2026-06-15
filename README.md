@@ -34,9 +34,15 @@ the app opens through your existing SSO. No backend, no telemetry, no waiting.
   top.
 - 📥 **Import from My Apps** — one click pulls your tiles from
   `myapplications.microsoft.com` (host permission requested only then), plus
-  manual add and JSON import/export.
-- 🔒 **Least privilege** — only `storage` + `scripting`; https-only; nothing
-  leaves your browser.
+  manual add, inline **edit**, and JSON import/export.
+- 🔄 **Stays in sync** — re-scrapes whenever you visit My Apps (and on a periodic
+  background check), adding new apps and removing ones you no longer have; your
+  manually-added apps are always kept.
+- 🔎 **Fallback search** — when nothing matches what you typed, hit Enter to
+  search My Apps or your default web search engine (configurable in settings).
+- 🔒 **Private by design** — everything stays in your browser; no telemetry. Host
+  access to `myapplications.microsoft.com` is requested only when you first
+  import or sync.
 
 ## Visuals
 
@@ -113,11 +119,11 @@ manual first submission and how to generate the OAuth credentials — is in
 
 ## Privacy
 
-Beeline stores your app list and settings in Chrome storage (synced to your
-Google account if Chrome sync is on) and launch counts locally. It makes **no
-external network calls** of its own and contains **no analytics or telemetry**.
-The only host access is `myapplications.microsoft.com`, requested on demand to
-import your own app tiles. Full details are in [PRIVACY.md](PRIVACY.md).
+Beeline stores your app list and launch counts in local browser storage, and a
+few small settings in Chrome sync. It makes **no external network calls** of its
+own and contains **no analytics or telemetry**. The only host access is
+`myapplications.microsoft.com`, used on demand to import/sync your own app tiles.
+Full details are in [PRIVACY.md](PRIVACY.md).
 
 ## Conventions
 

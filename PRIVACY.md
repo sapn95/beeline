@@ -35,24 +35,29 @@ location, or your web browsing history.
 
 ## Where the data is stored
 
-- The app list and preferences are stored in `chrome.storage.sync`.
-- Usage counts are stored in `chrome.storage.local`.
+- The app list and usage counts are stored in `chrome.storage.local`.
+- A few small settings are stored in `chrome.storage.sync`.
 
 This data stays within your browser. If you have **Chrome Sync** enabled,
-Chrome itself may synchronise `chrome.storage.sync` data across your signed-in
-devices via your Google Account. That synchronisation is performed by Google
-under Google's own privacy policy; the Beeline developer has no access to it.
+Chrome itself may synchronise the `chrome.storage.sync` settings across your
+signed-in devices via your Google Account. That synchronisation is performed by
+Google under Google's own privacy policy; the Beeline developer has no access to
+it.
 
 ## Permissions and why they are used
 
 - **storage** — to save your app list, preferences, and local usage counts.
-- **scripting** — used only when you click **Import from My Apps**, to read the
-  app names and URLs from your open My Apps tab. A small function bundled inside
-  the extension is injected for this; no remotely-hosted code is ever loaded or
-  executed.
+- **scripting** — used only to read the app names and URLs from your My Apps tab
+  (when you import, or when Beeline auto-syncs as you visit My Apps). A small
+  function bundled inside the extension is injected for this; no remotely-hosted
+  code is ever loaded or executed.
+- **alarms** — to schedule a periodic background check that refreshes the list
+  from an already-open My Apps tab.
+- **search** — only used if you enable the "web" fallback: it runs your typed
+  query in your browser's default search engine when no app matches.
 - **Host access to `https://myapplications.microsoft.com/*`** — an _optional_
-  permission, requested only at the moment you choose to import, and used solely
-  to read your own app tiles from that page.
+  permission, requested the first time you import, and used solely to read your
+  own app tiles from that page (on import and on auto-sync).
 
 ## Data sharing
 

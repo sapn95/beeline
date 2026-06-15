@@ -7,7 +7,7 @@ const emptyEl = document.getElementById('empty');
 
 let apps = [];
 let stats = {};
-let settings = { openInNewTab: true, closeAfterLaunch: true };
+let settings = { openInNewTab: true, closeAfterLaunch: true, fallbackSearch: 'myapps' };
 let current = [];
 let selected = 0;
 
@@ -25,13 +25,28 @@ async function init() {
 }
 
 function render() {
+  const q = searchEl.value.trim();
   current = rankApps(apps, searchEl.value, Date.now(), stats);
+  // When you have apps but none match, offer a fallback search action.
+  if (current.length === 0 && q && apps.length > 0) {
+    current = buildFallbacks(q);
+  }
   selected = 0;
   resultsEl.replaceChildren(...current.map(renderItem));
   updateSelection();
 }
 
+function buildFallbacks(query) {
+  const mode = settings.fallbackSearch;
+  const items = [];
+  if (mode === 'myapps' || mode === 'both') items.push({ fallback: 'myapps', query });
+  if (mode === 'web' || mode === 'both') items.push({ fallback: 'web', query });
+  return items;
+}
+
 function renderItem(r, i) {
+  if (r.fallback) return renderFallbackItem(r, i);
+
   const li = document.createElement('li');
   li.className = 'item';
   li.setAttribute('role', 'option');
@@ -58,6 +73,39 @@ function renderItem(r, i) {
   const host = document.createElement('span');
   host.className = 'host';
   host.textContent = hostOf(r.app.url) || r.app.url;
+  meta.append(name, host);
+
+  li.append(icon, meta);
+  li.addEventListener('click', () => launch(i));
+  li.addEventListener('mousemove', () => {
+    if (selected !== i) {
+      selected = i;
+      updateSelection();
+    }
+  });
+  return li;
+}
+
+function renderFallbackItem(r, i) {
+  const li = document.createElement('li');
+  li.className = 'item';
+  li.setAttribute('role', 'option');
+  li.dataset.index = String(i);
+
+  const icon = document.createElement('span');
+  icon.className = 'icon letter';
+  icon.textContent = '🔍';
+
+  const meta = document.createElement('span');
+  meta.className = 'meta';
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent =
+    r.fallback === 'myapps' ? `Search My Apps for “${r.query}”` : `Search the web for “${r.query}”`;
+  const host = document.createElement('span');
+  host.className = 'host';
+  host.textContent =
+    r.fallback === 'myapps' ? 'myapplications.microsoft.com' : 'your default search engine';
   meta.append(name, host);
 
   li.append(icon, meta);
@@ -135,11 +183,28 @@ function updateSelection() {
 async function launch(i) {
   const r = current[i];
   if (!r) return;
+  if (r.fallback) {
+    doFallback(r);
+    return;
+  }
   await recordLaunch(r.app.id, Date.now());
   if (settings.openInNewTab) {
     chrome.tabs.create({ url: r.app.url });
   } else {
     chrome.tabs.update({ url: r.app.url });
+  }
+  if (settings.closeAfterLaunch) window.close();
+}
+
+function doFallback(r) {
+  if (r.fallback === 'web') {
+    if (chrome.search?.query) {
+      chrome.search.query({ text: r.query, disposition: 'NEW_TAB' });
+    } else {
+      chrome.tabs.create({ url: `https://duckduckgo.com/?q=${encodeURIComponent(r.query)}` });
+    }
+  } else {
+    chrome.tabs.create({ url: 'https://myapplications.microsoft.com/' });
   }
   if (settings.closeAfterLaunch) window.close();
 }

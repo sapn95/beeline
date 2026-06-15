@@ -6,6 +6,7 @@ import {
   normalizeApp,
   normalizeAppList,
   mergeApps,
+  reconcileApps,
 } from '../src/lib/apps.js';
 
 describe('isValidHttpsUrl', () => {
@@ -76,5 +77,46 @@ describe('normalizeAppList / mergeApps', () => {
     expect(merged).toHaveLength(2);
     expect(merged.find((x) => x.url === 'https://a.com/').name).toBe('Keep');
     expect(merged.find((x) => x.url === 'https://b.com/').name).toBe('New');
+  });
+});
+
+describe('normalizeApp source', () => {
+  it('preserves manual / myapps source', () => {
+    expect(normalizeApp({ name: 'A', url: 'https://a.com', source: 'manual' }).source).toBe(
+      'manual',
+    );
+    expect(normalizeApp({ name: 'A', url: 'https://a.com', source: 'myapps' }).source).toBe(
+      'myapps',
+    );
+  });
+
+  it('ignores unknown or missing source', () => {
+    expect(
+      normalizeApp({ name: 'A', url: 'https://a.com', source: 'weird' }).source,
+    ).toBeUndefined();
+    expect(normalizeApp({ name: 'A', url: 'https://a.com' }).source).toBeUndefined();
+  });
+});
+
+describe('reconcileApps', () => {
+  it('adds new, drops removed myapps entries, and keeps manual ones', () => {
+    const existing = normalizeAppList([
+      { name: 'Manual', url: 'https://manual.com', source: 'manual' },
+      { name: 'OldImport', url: 'https://old.com', source: 'myapps' },
+    ]);
+    const result = reconcileApps(existing, [{ name: 'Fresh', url: 'https://new.com' }]);
+
+    expect(result.map((a) => a.url).sort()).toEqual(['https://manual.com/', 'https://new.com/']);
+    expect(result.find((a) => a.url === 'https://manual.com/').source).toBe('manual');
+    expect(result.find((a) => a.url === 'https://new.com/').source).toBe('myapps');
+    expect(result.find((a) => a.url === 'https://old.com/')).toBeUndefined();
+  });
+
+  it('keeps a manual app that shares a url with a scraped one', () => {
+    const existing = normalizeAppList([{ name: 'Mine', url: 'https://x.com', source: 'manual' }]);
+    const result = reconcileApps(existing, [{ name: 'Scraped', url: 'https://x.com' }]);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('Mine');
+    expect(result[0].source).toBe('manual');
   });
 });

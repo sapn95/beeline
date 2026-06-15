@@ -9,7 +9,7 @@ describe('manifest', () => {
   });
 
   it('requests only least-privilege permissions', () => {
-    expect(manifest.permissions).toEqual(['storage', 'scripting']);
+    expect(manifest.permissions).toEqual(['storage', 'scripting', 'alarms', 'search']);
     // No broad, always-on host access — My Apps access is requested on demand.
     expect(manifest.host_permissions).toBeUndefined();
     expect(manifest.optional_host_permissions).toContain('https://myapplications.microsoft.com/*');

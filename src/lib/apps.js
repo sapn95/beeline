@@ -49,6 +49,9 @@ export function normalizeApp(raw) {
   const app = { id: appId(url), name, url: canonicalUrl(url) };
   const icon = String(raw.iconUrl ?? '').trim();
   if (icon && isValidHttpsUrl(icon)) app.iconUrl = icon;
+  // Provenance: 'manual' (user added/edited) or 'myapps' (scraped). Drives
+  // reconcileApps — only 'myapps' entries are pruned on a re-sync.
+  if (raw.source === 'manual' || raw.source === 'myapps') app.source = raw.source;
   return app;
 }
 
@@ -71,6 +74,22 @@ export function normalizeAppList(rawList) {
 export function mergeApps(existing, incoming) {
   const map = new Map(normalizeAppList(existing).map((a) => [a.id, a]));
   for (const app of normalizeAppList(incoming)) {
+    if (!map.has(app.id)) map.set(app.id, app);
+  }
+  return [...map.values()];
+}
+
+/** Reconcile the list against a fresh My Apps scrape (add + remove):
+ * - manually added/edited apps (source !== 'myapps') are always kept;
+ * - previously-scraped apps that are no longer present are dropped;
+ * - newly-seen apps are added, tagged 'myapps'.
+ * Callers MUST skip this on an empty/failed scrape, or it would wipe the
+ * scraped set. Existing (manual) records win on id conflict. */
+export function reconcileApps(existing, scraped) {
+  const kept = normalizeAppList(existing).filter((a) => a.source !== 'myapps');
+  const incoming = normalizeAppList(scraped).map((a) => ({ ...a, source: 'myapps' }));
+  const map = new Map(kept.map((a) => [a.id, a]));
+  for (const app of incoming) {
     if (!map.has(app.id)) map.set(app.id, app);
   }
   return [...map.values()];
