@@ -121,8 +121,14 @@ jobs:
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
         run: |
           set -uo pipefail
+          # A listed add-on is reviewed by Mozilla (hours–days), so don't block on
+          # approval: --approval-timeout=0 submits the version and returns without
+          # waiting (otherwise web-ext times out after 15 min and reds the release).
+          # The || guard keeps any other benign "awaiting review" state non-fatal.
           npx --yes web-ext@latest sign \
             --channel=listed \
             --source-dir=dist-firefox \
             --api-key="$AMO_JWT_ISSUER" \
-            --api-secret="$AMO_JWT_SECRET"
+            --api-secret="$AMO_JWT_SECRET" \
+            --approval-timeout=0 \
+          || echo "::warning::web-ext sign returned non-zero — the version is likely uploaded and awaiting Mozilla review. Check addons.mozilla.org/developers."
