@@ -46,10 +46,17 @@ jobs:
 
       - name: GitHub release
         if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: myapps-launcher*.zip
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Use the preinstalled gh CLI (a standalone binary) instead of
+          # softprops/action-gh-release@v2, which still bundled Node 20.
+          # Idempotent: update assets if the release already exists, else create.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" myapps-launcher*.zip --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" myapps-launcher*.zip --generate-notes
+          fi
 
       - name: Detect Chrome Web Store secrets
         id: cws
