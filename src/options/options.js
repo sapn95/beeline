@@ -572,31 +572,6 @@ function diagnoseMyAppsInPage() {
   return info;
 }
 
-async function diagnoseMyApps(tabId) {
-  try {
-    const res = await withTimeout(
-      chrome.scripting.executeScript({ target: { tabId }, func: diagnoseMyAppsInPage }),
-      8000,
-    );
-    const i = res?.[0]?.result;
-    console.log('[Beeline] diagnose result:', i);
-    if (i) {
-      const host = String(i.url || '')
-        .replace(/^https?:\/\//, '')
-        .split('/')[0];
-      setStatus(
-        `DEBUG · ${host} · anchors ${i.anchors} · launcher ${i.launcherLinks} · ` +
-          `mainAnchors ${i.mainAnchors} · tilesImg ${i.tilesWithImg} · ` +
-          `gridcells ${i.gridcells} · buttons ${i.buttons} · iframes ${i.iframes}`,
-      );
-    } else {
-      setStatus('DEBUG · diagnose returned nothing (tab not accessible?)');
-    }
-  } catch (e) {
-    setStatus(`DEBUG · diagnose failed: ${e?.message} — tab likely on sign-in or still loading`);
-  }
-}
-
 // Scroll through the (virtualised) My Apps grid, accumulating the UNION of tiles
 // until the grid bottoms out with nothing new. The loop logic lives in the pure,
 // unit-tested accumulateApps(); here we just wire it to the live tab.
@@ -643,10 +618,9 @@ async function onImportMyApps() {
   try {
     // Run in a dedicated unfocused window so the virtualised grid renders without
     // pulling focus away from this page. See withMyAppsWindow().
-    ({ apps: best, complete } = await withMyAppsWindow(async (tabId) => {
-      await diagnoseMyApps(tabId); // DEBUG line: the starting tile counts
-      return collectAllApps(tabId, showImportProgress);
-    }));
+    ({ apps: best, complete } = await withMyAppsWindow((tabId) =>
+      collectAllApps(tabId, showImportProgress),
+    ));
   } catch (e) {
     setStatus(`Import failed: ${e?.message || e}. Open My Apps once to sign in, then try again.`);
     return;
