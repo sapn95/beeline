@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   getApps,
   saveApps,
+  mutateApps,
   getStats,
   recordLaunch,
   getSettings,
@@ -37,6 +38,44 @@ describe('apps storage', () => {
     const apps = [{ id: '1', name: 'A', url: 'https://a.com/' }];
     await saveApps(apps);
     expect(await getApps()).toEqual(apps);
+  });
+});
+
+describe('mutateApps', () => {
+  it('reads, applies the mutator, and persists the result', async () => {
+    await saveApps([{ id: '1', name: 'A', url: 'https://a.com/' }]);
+    const result = await mutateApps((current) => [
+      ...current,
+      { id: '2', name: 'B', url: 'https://b.com/' },
+    ]);
+    expect(result.map((a) => a.id)).toEqual(['1', '2']);
+    expect((await getApps()).map((a) => a.id)).toEqual(['1', '2']);
+  });
+
+  it('persists nothing when the mutator returns undefined', async () => {
+    await saveApps([{ id: '1', name: 'A', url: 'https://a.com/' }]);
+    const result = await mutateApps(() => undefined);
+    expect(result.map((a) => a.id)).toEqual(['1']); // returns the unchanged current list
+    expect((await getApps()).map((a) => a.id)).toEqual(['1']);
+  });
+
+  it('uses the Web Locks API to serialise when available', async () => {
+    const calls = [];
+    vi.stubGlobal('navigator', {
+      locks: {
+        request: async (name, fn) => {
+          calls.push(name);
+          return fn();
+        },
+      },
+    });
+    try {
+      await mutateApps((current) => [...current, { id: '9', name: 'Z', url: 'https://z.com/' }]);
+      expect(calls).toEqual(['beeline-apps']);
+      expect((await getApps()).map((a) => a.id)).toEqual(['9']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

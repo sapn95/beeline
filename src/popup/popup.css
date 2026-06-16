@@ -8,13 +8,25 @@
   --mark: #fde68a;
 }
 
+/* Dark palette, applied either by the explicit Dark theme or by Auto on an
+ * OS that prefers dark. The Theme setting writes data-theme on <html>. */
+:root[data-theme='dark'] {
+  --bg: #1b1d24;
+  --fg: #e8eaf0;
+  --muted: #9aa1b1;
+  --border: #2c2f3a;
+  --accent: #ff5a5a; /* brand red, lightened for dark mode contrast */
+  --accent-bg: #3a2324;
+  --mark: #7a5d12;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root[data-theme='auto'] {
     --bg: #1b1d24;
     --fg: #e8eaf0;
     --muted: #9aa1b1;
     --border: #2c2f3a;
-    --accent: #ff5a5a; /* brand red, lightened for dark mode contrast */
+    --accent: #ff5a5a;
     --accent-bg: #3a2324;
     --mark: #7a5d12;
   }
@@ -156,4 +168,45 @@ footer button {
 .hint {
   color: var(--muted);
   font-size: 11px;
+}
+
+/* Right-click menu on an app: copy its name or URL. */
+.ctx {
+  position: fixed;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+
+.ctx button {
+  border: none;
+  text-align: left;
+  color: var(--fg);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.ctx button:hover {
+  background: var(--accent-bg);
+  border-color: transparent;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 11;
+  padding: 6px 12px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }

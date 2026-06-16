@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS = {
   closeAfterLaunch: true,
   fallbackSearch: 'myapps', // 'myapps' | 'web' | 'both' | 'off'
   awsRegion: '', // when set, apps with "aws" in the name launch into this region
+  theme: 'auto', // 'auto' (follow OS) | 'light' | 'dark'
 };
 
 function syncArea() {
@@ -36,6 +37,26 @@ export async function getApps() {
 export async function saveApps(apps) {
   const area = localArea();
   if (area) await area.set({ [APPS_KEY]: apps });
+}
+
+/**
+ * Atomic read-modify-write of the app list. The options page and the background
+ * sync share one extension origin and both write the list, so a plain
+ * get()+set() can clobber. We serialise writers with the Web Locks API (held
+ * across both contexts), falling back to a direct read-modify-write where locks
+ * are unavailable (e.g. unit tests). `mutator(current)` returns the next list,
+ * or `undefined` to make no change. Resolves to the stored list.
+ */
+export async function mutateApps(mutator) {
+  const run = async () => {
+    const current = await getApps();
+    const next = await mutator(current);
+    if (next === undefined) return current;
+    await saveApps(next);
+    return next;
+  };
+  const locks = globalThis.navigator?.locks;
+  return locks?.request ? locks.request('beeline-apps', run) : run();
 }
 
 export async function getStats() {

@@ -74,7 +74,14 @@ export function normalizeAppList(rawList) {
 export function mergeApps(existing, incoming) {
   const map = new Map(normalizeAppList(existing).map((a) => [a.id, a]));
   for (const app of normalizeAppList(incoming)) {
-    if (!map.has(app.id)) map.set(app.id, app);
+    const prev = map.get(app.id);
+    if (!prev) {
+      map.set(app.id, app);
+    } else if (!prev.source && app.source) {
+      // Heal a legacy untagged record: keep its (possibly user-edited) fields but
+      // adopt the provenance tag from the fresh import so future syncs manage it.
+      map.set(app.id, { ...prev, source: app.source });
+    }
   }
   return [...map.values()];
 }
@@ -86,11 +93,25 @@ export function mergeApps(existing, incoming) {
  * Callers MUST skip this on an empty/failed scrape, or it would wipe the
  * scraped set. Existing (manual) records win on id conflict. */
 export function reconcileApps(existing, scraped) {
-  const kept = normalizeAppList(existing).filter((a) => a.source !== 'myapps');
+  const normExisting = normalizeAppList(existing);
   const incoming = normalizeAppList(scraped).map((a) => ({ ...a, source: 'myapps' }));
+  const incomingIds = new Set(incoming.map((a) => a.id));
+  // Legacy untagged records (no source), keyed by id, so that when we re-tag one
+  // as 'myapps' below we keep ITS (possibly user-customised) name/icon rather
+  // than overwriting with the scrape.
+  const legacyById = new Map(normExisting.filter((a) => !a.source).map((a) => [a.id, a]));
+  // Always keep explicit manual apps. Keep other non-'myapps' records (including
+  // legacy untagged ones) ONLY while they're absent from the fresh scrape: an
+  // untagged app that still appears in My Apps is dropped here so the re-tagged
+  // record below replaces it (making it prunable on later syncs).
+  const kept = normExisting.filter(
+    (a) => a.source === 'manual' || (a.source !== 'myapps' && !incomingIds.has(a.id)),
+  );
   const map = new Map(kept.map((a) => [a.id, a]));
   for (const app of incoming) {
-    if (!map.has(app.id)) map.set(app.id, app);
+    if (map.has(app.id)) continue;
+    const legacy = legacyById.get(app.id);
+    map.set(app.id, legacy ? { ...legacy, source: 'myapps' } : app);
   }
   return [...map.values()];
 }

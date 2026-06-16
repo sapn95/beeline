@@ -5,6 +5,11 @@ import { withAwsRegion } from '../lib/apps.js';
 const searchEl = document.getElementById('search');
 const resultsEl = document.getElementById('results');
 const emptyEl = document.getElementById('empty');
+const ctxEl = document.getElementById('ctx');
+const toastEl = document.getElementById('toast');
+
+let ctxApp = null; // the app the right-click menu is acting on
+let toastTimer = null;
 
 let apps = [];
 let stats = {};
@@ -19,6 +24,13 @@ let selected = 0;
 
 async function init() {
   [apps, stats, settings] = await Promise.all([getApps(), getStats(), getSettings()]);
+  const theme = settings.theme || 'auto'; // 'auto' | 'light' | 'dark'
+  document.documentElement.dataset.theme = theme;
+  try {
+    localStorage.setItem('beeline-theme', theme); // mirror for theme-boot.js (no-flash)
+  } catch {
+    /* localStorage unavailable */
+  }
   emptyEl.hidden = apps.length > 0;
   render();
 
@@ -27,6 +39,27 @@ async function init() {
   document.getElementById('open-options').addEventListener('click', openOptions);
   const manage = document.getElementById('manage');
   if (manage) manage.addEventListener('click', openOptions);
+
+  // Right-click copy menu: act on its buttons, and dismiss on outside click/scroll/blur.
+  ctxEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (btn) onCtxAction(btn.dataset.act);
+  });
+  // Capture phase + stop, so the click that dismisses the menu doesn't also fall
+  // through to a row and launch that app.
+  document.addEventListener(
+    'click',
+    (e) => {
+      if (ctxEl.hidden || ctxEl.contains(e.target)) return; // let menu-button clicks through
+      e.preventDefault();
+      e.stopPropagation();
+      closeCtxMenu();
+    },
+    true,
+  );
+  resultsEl.addEventListener('scroll', closeCtxMenu);
+  window.addEventListener('blur', closeCtxMenu);
+
   searchEl.focus();
 }
 
@@ -82,6 +115,7 @@ function renderItem(r, i) {
 
   li.append(icon, meta);
   li.addEventListener('click', () => launch(i));
+  li.addEventListener('contextmenu', (e) => openCtxMenu(e, r.app, i)); // right-click → copy menu
   li.addEventListener('mousemove', () => {
     if (selected !== i) {
       selected = i;
@@ -147,6 +181,11 @@ function highlight(text, positions) {
 }
 
 function onKeyDown(e) {
+  if (e.key === 'Escape' && !ctxEl.hidden) {
+    e.preventDefault();
+    closeCtxMenu(); // close the copy menu first, before clearing the search
+    return;
+  }
   if (e.key === 'ArrowDown') {
     e.preventDefault();
     move(1);
@@ -225,6 +264,55 @@ function openOptions() {
   } else {
     chrome.tabs.create({ url: chrome.runtime.getURL('options/options.html') });
   }
+}
+
+// Right-click menu: copy an app's name or URL.
+function openCtxMenu(e, app, i) {
+  e.preventDefault();
+  selected = i;
+  updateSelection();
+  ctxApp = app;
+  ctxEl.hidden = false;
+  // Show first (so we can measure it), then clamp inside the popup viewport.
+  const x = Math.max(4, Math.min(e.clientX, window.innerWidth - ctxEl.offsetWidth - 4));
+  const y = Math.max(4, Math.min(e.clientY, window.innerHeight - ctxEl.offsetHeight - 4));
+  ctxEl.style.left = `${x}px`;
+  ctxEl.style.top = `${y}px`;
+}
+
+function closeCtxMenu() {
+  if (!ctxEl.hidden) {
+    ctxEl.hidden = true;
+    ctxApp = null;
+  }
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text); // works in Chrome + Firefox popups on a user gesture
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.hidden = false;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toastEl.hidden = true;
+  }, 1400);
+}
+
+async function onCtxAction(act) {
+  const app = ctxApp;
+  closeCtxMenu();
+  if (!app) return;
+  const isUrl = act === 'url';
+  const label = isUrl ? 'URL' : 'name';
+  const ok = await copyText(isUrl ? app.url : app.name);
+  toast(ok ? `Copied ${label}` : 'Copy failed');
 }
 
 await init();

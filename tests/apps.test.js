@@ -123,6 +123,46 @@ describe('reconcileApps', () => {
     expect(result[0].name).toBe('Mine');
     expect(result[0].source).toBe('manual');
   });
+
+  it('re-tags a legacy untagged app still in My Apps, preserving its local fields', () => {
+    const existing = normalizeAppList([
+      { name: 'Legacy edit', url: 'https://legacy.com', iconUrl: 'https://i/edit.png' }, // no source
+    ]);
+    const result = reconcileApps(existing, [
+      { name: 'Scraped', url: 'https://legacy.com', iconUrl: 'https://i/scraped.png' },
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result[0].source).toBe('myapps'); // now prunable on future syncs
+    expect(result[0].name).toBe('Legacy edit'); // local name kept, not overwritten
+    expect(result[0].iconUrl).toBe('https://i/edit.png'); // local icon kept
+  });
+
+  it('keeps a legacy untagged app that is no longer in My Apps', () => {
+    const existing = normalizeAppList([{ name: 'Legacy', url: 'https://legacy.com' }]); // no source
+    const result = reconcileApps(existing, [{ name: 'Other', url: 'https://other.com' }]);
+    expect(result.find((a) => a.url === 'https://legacy.com/')).toBeDefined();
+  });
+});
+
+describe('mergeApps legacy healing', () => {
+  it('promotes an untagged existing record when a tagged import covers it', () => {
+    const existing = normalizeAppList([{ name: 'Legacy', url: 'https://legacy.com' }]); // untagged
+    const result = mergeApps(existing, [
+      { name: 'Legacy', url: 'https://legacy.com', source: 'myapps' },
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result[0].source).toBe('myapps');
+    expect(result[0].name).toBe('Legacy'); // existing (possibly edited) fields preserved
+  });
+
+  it('never downgrades an explicit manual record', () => {
+    const existing = normalizeAppList([{ name: 'Mine', url: 'https://x.com', source: 'manual' }]);
+    const result = mergeApps(existing, [
+      { name: 'Scraped', url: 'https://x.com', source: 'myapps' },
+    ]);
+    expect(result[0].source).toBe('manual');
+    expect(result[0].name).toBe('Mine');
+  });
 });
 
 describe('withAwsRegion', () => {

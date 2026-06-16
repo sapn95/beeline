@@ -1,8 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="auto">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="../theme-boot.js"></script>
     <link rel="stylesheet" href="popup.css" />
     <title>Beeline</title>
   </head>
@@ -27,6 +28,11 @@
         <button id="open-options" type="button">Manage apps</button>
         <span class="hint">↑↓ · ↵ open · ⌥1–9 · esc</span>
       </footer>
+      <div id="ctx" class="ctx" role="menu" hidden>
+        <button type="button" data-act="name" role="menuitem">Copy name</button>
+        <button type="button" data-act="url" role="menuitem">Copy URL</button>
+      </div>
+      <output id="toast" class="toast" aria-live="polite" hidden></output>
     </div>
     <script type="module" src="popup.js"></script>
   </body>

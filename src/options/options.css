@@ -7,13 +7,24 @@
   --danger: #dc2626;
 }
 
+/* Dark palette, applied either by the explicit Dark theme or by Auto on an
+ * OS that prefers dark. The Theme setting writes data-theme on <html>. */
+:root[data-theme='dark'] {
+  --bg: #15171d;
+  --fg: #e8eaf0;
+  --muted: #9aa1b1;
+  --border: #2c2f3a;
+  --accent: #ff5a5a; /* brand red, lightened for dark mode contrast */
+  --danger: #f87171;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root[data-theme='auto'] {
     --bg: #15171d;
     --fg: #e8eaf0;
     --muted: #9aa1b1;
     --border: #2c2f3a;
-    --accent: #ff5a5a; /* brand red, lightened for dark mode contrast */
+    --accent: #ff5a5a;
     --danger: #f87171;
   }
 }
@@ -242,4 +253,49 @@ kbd {
   border: none;
   color: var(--muted);
   padding: 16px 2px;
+}
+
+#debug-out {
+  margin-top: 12px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--accent-bg);
+  color: var(--fg);
+  font:
+    12px/1.45 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.import-progress .bar {
+  margin-top: 10px;
+  height: 4px;
+  width: 100%;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.import-progress .bar span {
+  display: block;
+  height: 100%;
+  width: 35%;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: beeline-progress 1.1s ease-in-out infinite;
+}
+
+@keyframes beeline-progress {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
 }

@@ -1,8 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="auto">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="../theme-boot.js"></script>
     <link rel="stylesheet" href="options.css" />
     <title>Beeline — Manage apps</title>
   </head>
@@ -27,7 +28,9 @@
             Import JSON
             <input id="import-file" type="file" accept="application/json" hidden />
           </label>
+          <button id="debug" type="button">Debug</button>
         </div>
+        <pre id="debug-out" hidden></pre>
       </section>
 
       <section>
@@ -59,6 +62,14 @@
         <label class="select">
           AWS region (for apps with “aws” in the name):
           <select id="aws-region"></select>
+        </label>
+        <label class="select">
+          Theme:
+          <select id="theme">
+            <option value="auto">Auto (match system)</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
         </label>
       </section>
 
