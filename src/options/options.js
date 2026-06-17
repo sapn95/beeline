@@ -1,5 +1,5 @@
 import { getApps, mutateApps, getSettings, saveSettings } from '../lib/storage.js';
-import { normalizeApp, mergeApps, reconcileApps } from '../lib/apps.js';
+import { normalizeApp, normalizeAppList, mergeApps, reconcileApps } from '../lib/apps.js';
 import { scrapeAppsFromDocument } from '../lib/importer.js';
 import { accumulateApps } from '../lib/collector.js';
 
@@ -20,7 +20,13 @@ let appFilter = '';
 let pendingAppsRefresh = false; // a storage change arrived while editing — apply it on exit
 
 async function init() {
-  apps = await getApps();
+  // Load + heal: re-normalise stored apps once so legacy names saved before the
+  // hyphen-spacing fix (e.g. "S-SBB -SAP") get cleaned up in place. Writes only
+  // when something actually changed.
+  apps = await mutateApps((current) => {
+    const cleaned = normalizeAppList(current);
+    return JSON.stringify(cleaned) === JSON.stringify(current) ? undefined : cleaned;
+  });
   renderList();
   populateRegions();
   await loadSettings();

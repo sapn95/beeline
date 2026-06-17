@@ -40,6 +40,17 @@ describe('normalizeApp', () => {
     expect(app.id).toBe(appId('https://a.com/x'));
   });
 
+  it('heals stray spaces around joining hyphens but keeps real separators', () => {
+    expect(normalizeApp({ name: 'S-SBB -SAP-DEV2-NWGW', url: 'https://a.com' }).name).toBe(
+      'S-SBB-SAP-DEV2-NWGW',
+    );
+    expect(normalizeApp({ name: 'S4- SAML2', url: 'https://a.com' }).name).toBe('S4-SAML2');
+    // A spaced " - " separator (both sides) is intentional — leave it.
+    expect(normalizeApp({ name: 'Power BI - Dev', url: 'https://a.com' }).name).toBe(
+      'Power BI - Dev',
+    );
+  });
+
   it('keeps an https icon but drops an http icon', () => {
     expect(
       normalizeApp({ name: 'A', url: 'https://a.com', iconUrl: 'https://i/a.png' }).iconUrl,

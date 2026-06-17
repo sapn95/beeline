@@ -42,7 +42,11 @@ export function normalizeApp(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const name = String(raw.name ?? '')
     .trim()
-    .replace(/\s+/g, ' ');
+    .replace(/\s+/g, ' ')
+    // Heal stray spaces around a hyphen joining a token (My Apps stores some apps
+    // as e.g. "S-SBB -SAP-DEV2"); leave real " - " separators alone.
+    .replace(/ -(\S)/g, '-$1')
+    .replace(/(\S)- /g, '$1-');
   const url = String(raw.url ?? '').trim();
   if (!name || !isValidHttpsUrl(url)) return null;
 
