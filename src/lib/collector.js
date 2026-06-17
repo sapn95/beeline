@@ -14,11 +14,16 @@
  *   yet (sign-in origin / still loading) — `null` is retried, never counted.
  * @param {()=>Promise<number|null>} io.scrollRound
  *   Scrolls one step; returns the pixels still left to the bottom (<= 4 ≈ at the
- *   bottom), or `null`/non-number when it could not scroll.
+ *   bottom, 0 when nothing could scroll further), or `null`/non-number on failure.
  * @param {(ms:number)=>Promise<void>} [io.sleep]
  * @param {number} [io.maxRounds]
  * @param {number} [io.stableLimit]
  *   Consecutive at-the-bottom rounds with nothing new before we call it complete.
+ * @param {number} [io.stepDelay] - ms to wait after each scroll for a re-render.
+ * @param {number} [io.noGrowthCap]
+ *   Stop after this many consecutive rounds with no new tiles even if the bottom
+ *   was never detected — a safety valve so a flaky bottom-signal can't spin to
+ *   the deadline. Such a stop reports `complete:false` (merge-only, never removes).
  * @param {number|null} [io.deadline] - `Date.now()` cutoff; `null` = no deadline.
  * @returns {Promise<{apps:Array, rounds:number, complete:boolean, reachedBottom:boolean}>}
  *   `complete` is true only when we converged at the bottom — the caller may then
@@ -31,10 +36,13 @@ export async function accumulateApps({
   sleep = () => Promise.resolve(),
   maxRounds = 150,
   stableLimit = 5,
+  stepDelay = 400,
+  noGrowthCap = 12,
   deadline = null,
 }) {
   const seen = new Map();
   let stable = 0;
+  let noGrowth = 0;
   let rounds = 0;
   let reachedBottom = false;
 
@@ -49,18 +57,21 @@ export async function accumulateApps({
 
     const grew = addNew(seen, found);
     const remaining = await scrollRound();
-    await sleep(800);
+    await sleep(stepDelay);
 
+    noGrowth = grew ? 0 : noGrowth + 1;
     if (typeof remaining === 'number') {
       reachedBottom = remaining <= 4;
       // Converge only at the bottom AND with nothing new; growth or remaining
       // scroll room resets the counter so we never stop early mid-grid.
       stable = !grew && reachedBottom ? stable + 1 : 0;
     } else if (grew) {
-      // Unknown remaining (transient scroll failure): keep accumulated stability
-      // unless we just grew, which means there is clearly more still to read.
-      stable = 0;
+      stable = 0; // a transient scroll failure that still revealed new tiles
     }
+
+    // Safety valve: nothing new for a long stretch (even without a detected
+    // bottom) → stop. Reports complete:false, so this can only ever add apps.
+    if (noGrowth >= noGrowthCap) break;
   }
 
   return { apps: [...seen.values()], rounds, complete: stable >= stableLimit, reachedBottom };

@@ -121,6 +121,27 @@ describe('accumulateApps', () => {
     expect(res.apps).toHaveLength(30);
   });
 
+  it('stops via the no-growth cap (incomplete) if the bottom is never detected', async () => {
+    // Scrolling always claims there is more to go (never <= 4) and no new tiles
+    // ever appear after the first round: must bail at noGrowthCap, not spin.
+    const all = Array.from({ length: 3 }, (_, i) => ({ name: `a${i}`, url: `https://a${i}` }));
+    let rounds = 0;
+    const res = await accumulateApps({
+      scrapeRound: () => Promise.resolve(all),
+      scrollRound: () => {
+        rounds += 1;
+        return Promise.resolve(999); // forever "lots left", never the bottom
+      },
+      sleep: NOOP,
+      stableLimit: 5,
+      noGrowthCap: 4,
+      maxRounds: 100,
+    });
+    expect(res.apps).toHaveLength(3);
+    expect(res.complete).toBe(false); // never confirmed the bottom → merge-only
+    expect(rounds).toBeLessThan(10); // stopped at the cap, nowhere near maxRounds (100)
+  });
+
   it('ignores tiles with no url and works with the default sleep', async () => {
     let n = 0;
     const res = await accumulateApps({

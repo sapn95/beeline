@@ -1,6 +1,6 @@
 import { getApps, mutateApps, getSettings, saveSettings } from '../lib/storage.js';
 import { normalizeApp, normalizeAppList, mergeApps, reconcileApps } from '../lib/apps.js';
-import { scrapeAppsFromDocument } from '../lib/importer.js';
+import { scrapeAppsFromDocument, accountHintFromApps } from '../lib/importer.js';
 import { accumulateApps } from '../lib/collector.js';
 
 const MYAPPS_ORIGIN = 'https://myapplications.microsoft.com/';
@@ -33,7 +33,6 @@ async function init() {
 
   document.getElementById('add-form').addEventListener('submit', onAdd);
   document.getElementById('import-myapps').addEventListener('click', onImportMyApps);
-  document.getElementById('debug').addEventListener('click', onDebug);
   document.getElementById('export').addEventListener('click', onExport);
   document.getElementById('import-file').addEventListener('change', onImportFile);
   document.getElementById('clear').addEventListener('click', onClear);
@@ -89,39 +88,6 @@ async function ensureFresh() {
     apps = await getApps();
     dropStaleEdit();
   }
-}
-
-// Debug button: open/return the My Apps tab, run the DOM probe, and dump the
-// full result on the page so it can be read/copied without the console.
-async function onDebug() {
-  setStatus('Running diagnostics…');
-  const granted = await chrome.permissions.request({ origins: [MYAPPS_PATTERN] });
-  if (!granted) {
-    setStatus('Permission denied — cannot read My Apps.');
-    return;
-  }
-  let [tab] = await chrome.tabs.query({ url: MYAPPS_PATTERN });
-  if (!tab) {
-    await chrome.tabs.create({ url: MYAPPS_ORIGIN, active: true });
-    setStatus('Opened My Apps — sign in, wait for your apps to appear, then click Debug again.');
-    return;
-  }
-  await wakeTab(tab.id); // wake a slept/discarded tab so executeScript doesn't hang
-  let info;
-  try {
-    const res = await withTimeout(
-      chrome.scripting.executeScript({ target: { tabId: tab.id }, func: diagnoseMyAppsInPage }),
-      8000,
-    );
-    info = res?.[0]?.result ?? { error: 'no result — tab not accessible (sign-in / loading?)' };
-  } catch (e) {
-    info = { error: e?.message || String(e) };
-  }
-  await focusSelf(); // return to the options page to show the result
-  const out = document.getElementById('debug-out');
-  out.hidden = false;
-  out.textContent = JSON.stringify(info, null, 2);
-  setStatus('Diagnostics ready — copy or screenshot the box below and send it to me.');
 }
 
 // Live progress shown in the list area during a (possibly long) import.
@@ -364,62 +330,56 @@ const withTimeout = (promise, ms) =>
 // Injected into the My Apps page: scroll one viewport down. The grid is
 // virtualised inside an inner scroll panel, so we scroll the scrollable
 // ancestors OF THE TILES THEMSELVES (plus the window) — scoping to tile-bearing
-// scrollers stops an unrelated panel from holding the loop open forever. Returns
-// the LARGEST distance-to-bottom across them, so the grid is only treated as
-// fully walked once every tile-scroller is at the bottom.
+// scrollers stops an unrelated panel from holding the loop open forever.
+// Returns 0 once NOTHING can advance any further (the reliable "at the bottom"
+// signal, independent of trailing padding); otherwise the largest distance still
+// left to the bottom.
 function scrollMyAppsStepInPage() {
   const step = Math.round(window.innerHeight * 0.8) || 600;
-  window.scrollBy(0, step);
-
   const overflows = (el, min) =>
-    el && el.scrollHeight - el.clientHeight > min && el.clientHeight > 150;
+    !!el && el.scrollHeight - el.clientHeight > min && el.clientHeight > 150;
+  const gap = (el) => el.scrollHeight - (el.scrollTop + el.clientHeight);
+  const nearestScroller = (node) => {
+    for (let el = node.parentElement; el && el !== document.body; el = el.parentElement) {
+      if (overflows(el, 4)) return el;
+    }
+    return null;
+  };
 
-  // Find the nearest scrollable ancestor of each app tile. We KNOW these hold
-  // tiles, so accept any real overflow (>4px) — a grid that overflows by only a
-  // row would otherwise be skipped, falsely report "bottom", and let an
-  // incomplete scrape reconcile away existing apps. The selector mirrors the
-  // scraper (importer.js) so direct-link icon tiles count as tiles here too.
+  // The tile selector mirrors the scraper (importer.js) so direct-link icon tiles
+  // count as tiles here too; we scroll each tile's nearest scrollable ancestor.
   const tiles = document.querySelectorAll(
     'a[href*="launcher.myapps.microsoft.com"], a[href*="/api/signin/"], a[href*="/launch"], ' +
       '[role="gridcell"], main a[href]:has(img), [role="main"] a[href]:has(img)',
   );
   const scrollers = new Set();
   for (const tile of tiles) {
-    for (let el = tile.parentElement; el && el !== document.body; el = el.parentElement) {
-      if (overflows(el, 4)) {
-        scrollers.add(el);
-        break;
-      }
-    }
+    const s = nearestScroller(tile);
+    if (s) scrollers.add(s);
   }
-  // Fallback (e.g. empty grid / unknown markup): consider all sizeably-scrollable
-  // blocks — here the larger threshold avoids latching onto trivial overflows.
+  // Fallback (empty grid / unknown markup): all sizeably-scrollable blocks.
   if (scrollers.size === 0) {
     for (const el of document.querySelectorAll('div, main, section, ul')) {
       if (overflows(el, 200)) scrollers.add(el);
     }
   }
 
-  let maxRemaining = Math.max(
-    0,
-    document.documentElement.scrollHeight - (window.scrollY + window.innerHeight),
-  );
+  // Scroll window + each tile scroller, tracking whether ANYTHING advanced and
+  // how far the deepest scroller still has to go.
+  const winBefore = window.scrollY;
+  window.scrollBy(0, step);
+  let moved = window.scrollY !== winBefore;
+  let maxRemaining = document.documentElement.scrollHeight - (window.scrollY + window.innerHeight);
   for (const el of scrollers) {
+    const before = el.scrollTop;
     el.scrollTop += step;
-    maxRemaining = Math.max(maxRemaining, el.scrollHeight - (el.scrollTop + el.clientHeight));
+    if (el.scrollTop !== before) moved = true;
+    maxRemaining = Math.max(maxRemaining, gap(el));
   }
-  return maxRemaining;
-}
 
-// Bring the Beeline settings page back to the foreground after an import.
-async function focusSelf() {
-  const self = await chrome.tabs.getCurrent();
-  if (self) {
-    await chrome.tabs.update(self.id, { active: true });
-    if (self.windowId != null) await chrome.windows.update(self.windowId, { focused: true });
-  } else if (chrome.runtime.openOptionsPage) {
-    chrome.runtime.openOptionsPage();
-  }
+  // Nothing could advance → genuinely at the bottom, even if trailing padding
+  // keeps maxRemaining above zero. Otherwise report the remaining gradient.
+  return moved ? Math.max(0, maxRemaining) : 0;
 }
 
 // Scroll + scrape one round. Returns the app array, or null when the page is
@@ -451,21 +411,6 @@ async function scrollMyAppsStep(tabId) {
     return typeof res?.[0]?.result === 'number' ? res[0].result : null;
   } catch {
     return null; // executeScript hung or the page is not ready
-  }
-}
-
-// Edge/Chrome freeze or discard inactive tabs, which makes executeScript hang
-// (the cause of the earlier timeouts). Reloading un-discards the tab IN PLACE,
-// without switching to it — so no jarring redirect. Used by the Debug button.
-async function wakeTab(tabId) {
-  try {
-    const tab = await chrome.tabs.get(tabId);
-    if (tab.discarded) {
-      await chrome.tabs.reload(tabId);
-      await sleep(3000);
-    }
-  } catch {
-    /* ignore */
   }
 }
 
@@ -545,37 +490,6 @@ async function withMyAppsWindow(fn) {
       await chrome.windows.remove(win.id).catch(() => {});
     }
   }
-}
-
-// Injected: log a snapshot of the My Apps DOM so we can see WHY a scrape is
-// empty (open the options-page console, or the My Apps tab console).
-function diagnoseMyAppsInPage() {
-  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim().slice(0, 50);
-  const sample = (sel, n) =>
-    [...document.querySelectorAll(sel)].slice(0, n).map((e) => ({
-      tag: e.tagName.toLowerCase(),
-      role: e.getAttribute('role') || '',
-      href: (e.getAttribute('href') || '').slice(0, 90),
-      label: norm(e.getAttribute('aria-label') || e.textContent),
-      img: !!e.querySelector('img'),
-      cls: norm(String(e.className)),
-    }));
-  const info = {
-    url: location.href,
-    title: document.title,
-    anchors: document.querySelectorAll('a[href]').length,
-    launcherLinks: document.querySelectorAll('a[href*="launcher.myapps"],a[href*="/launch"]')
-      .length,
-    mainAnchors: document.querySelectorAll('main a[href],[role="main"] a[href]').length,
-    tilesWithImg: document.querySelectorAll('main a img,[role="main"] a img').length,
-    gridcells: document.querySelectorAll('[role="gridcell"]').length,
-    buttons: document.querySelectorAll('button,[role="button"]').length,
-    iframes: document.querySelectorAll('iframe').length,
-    sampleAnchors: sample('a[href]', 10),
-    sampleButtons: sample('[role="button"],button', 10),
-  };
-  console.log('%c[Beeline] My Apps DOM diagnose', 'color:#eb0000;font-weight:bold', info);
-  return info;
 }
 
 // Scroll through the (virtualised) My Apps grid, accumulating the UNION of tiles
@@ -664,11 +578,15 @@ async function onImportMyApps() {
   dropStaleEdit(); // a complete reconcile may have removed the app being edited
   renderList();
   const delta = apps.length - before;
+  // Surface WHICH account this came from, so a multi-account / multi-profile
+  // mismatch is obvious instead of silent.
+  const account = accountHintFromApps(scraped);
+  const who = account ? ` (account: ${account})` : '';
   if (complete) {
-    setStatus(`Synced ${best.length} app(s) from My Apps. Your manual apps are kept.`);
+    setStatus(`Synced ${best.length} app(s) from My Apps${who}. Your manual apps are kept.`);
   } else {
     setStatus(
-      `Imported ${best.length} app(s) (+${delta}) — didn't reach the end, so nothing was removed. Run Import again to finish.`,
+      `Imported ${best.length} app(s) (+${delta})${who} — didn't reach the end, so nothing was removed. Run Import again to finish.`,
     );
   }
 }

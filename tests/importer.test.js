@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
-import { scrapeAppsFromDocument } from '../src/lib/importer.js';
+import { scrapeAppsFromDocument, accountHintFromApps } from '../src/lib/importer.js';
 
 beforeEach(() => {
   document.body.innerHTML = `
@@ -85,5 +85,24 @@ describe('scrapeAppsFromDocument — real My Apps markup', () => {
     const names = scrapeAppsFromDocument(document).map((a) => a.name);
     expect(names).not.toContain('View account');
     expect(names.some((n) => /myaccount/i.test(n))).toBe(false);
+  });
+});
+
+describe('accountHintFromApps', () => {
+  it('picks the most common account email from deep-link URLs (case-insensitive params)', () => {
+    const apps = [
+      { url: 'https://outlook.office.com/?login_hint=a@sbb.ch' },
+      { url: 'https://planner.cloud.microsoft/?auth_upn=a@sbb.ch' },
+      { url: 'https://app.powerbi.com/?UPN=a@sbb.ch' }, // upper-case param key
+      { url: 'https://x/?login_hint=b@sbb.ch' },
+      { url: 'https://launcher.myapps.microsoft.com/api/signin/123' }, // no hint
+    ];
+    expect(accountHintFromApps(apps)).toBe('a@sbb.ch');
+  });
+
+  it('returns null when no account hint is present', () => {
+    expect(accountHintFromApps([{ url: 'https://a.com/' }, { url: 'not a url' }])).toBeNull();
+    expect(accountHintFromApps([])).toBeNull();
+    expect(accountHintFromApps()).toBeNull();
   });
 });

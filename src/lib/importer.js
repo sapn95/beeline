@@ -69,3 +69,41 @@ export function scrapeAppsFromDocument(doc = typeof document !== 'undefined' ? d
 
   return out;
 }
+
+// URL query params that carry the signed-in account's email across Microsoft apps.
+const ACCOUNT_PARAMS = new Set(['login_hint', 'auth_upn', 'user_email', 'upn', 'username']);
+
+/**
+ * Best-guess the Microsoft account these scraped apps belong to, by reading the
+ * email embedded in their deep-link URLs (e.g. `?login_hint=a@b.ch`). Returns the
+ * most common email, or null. Used to surface WHICH account an import came from
+ * so a multi-account / multi-profile mismatch is visible rather than silent.
+ * @param {Array<{url?: string}>} apps
+ * @returns {string|null}
+ */
+export function accountHintFromApps(apps) {
+  const counts = new Map();
+  for (const app of apps || []) {
+    let parsed;
+    try {
+      parsed = new URL(app?.url);
+    } catch {
+      continue;
+    }
+    for (const [key, value] of parsed.searchParams) {
+      if (value.includes('@') && ACCOUNT_PARAMS.has(key.toLowerCase())) {
+        const email = value.trim().toLowerCase();
+        counts.set(email, (counts.get(email) || 0) + 1);
+      }
+    }
+  }
+  let best = null;
+  let max = 0;
+  for (const [email, n] of counts) {
+    if (n > max) {
+      max = n;
+      best = email;
+    }
+  }
+  return best;
+}
