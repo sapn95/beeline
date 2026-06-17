@@ -1,6 +1,6 @@
 {
   "name": "myapps-launcher",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Beeline — a fast, keyboard-first launcher for your Microsoft My Apps / Entra single-sign-on apps.",
   "type": "module",
   "private": true,
