@@ -2,8 +2,9 @@ name: Release
 
 # Runs when you "do a release" any of these ways:
 #   - push a version tag:   npm version patch && git push --follow-tags
-#   - publish a GitHub Release in the UI
-#   - click "Run workflow" (manual dispatch)
+#   - click "Run workflow" (manual dispatch) — same rules as the monthly run
+#   - automatically, on the 1st of each month, IF the shipped extension changed
+#     since the last release AND the full test suite is green (see "Plan" below)
 # It builds, tests, and packages BOTH Chrome + Firefox, and — when the store
 # secrets are set — uploads/publishes to the Chrome Web Store and signs/publishes
 # to Firefox AMO automatically.
@@ -15,85 +16,257 @@ name: Release
 on:
   push:
     tags: ['v*']
-  release:
-    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Republish this existing tag (leave empty to release from main)'
+        required: false
+        default: ''
+  schedule:
+    - cron: '0 6 1 * *' # 1st of the month, 06:00 UTC
 
-# Never run two publishes at once; queue rather than cancel (don't kill a publish).
+# Never run two publishes at once; queue rather than cancel (don't kill a
+# publish). queue: max keeps every waiting run instead of letting a newer one
+# replace the single pending slot and silently drop a release.
 concurrency:
   group: release
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: write
 
 jobs:
   release:
+    timeout-minutes: 30
+    # A manual dispatch from a side branch would tag THAT branch and push it to
+    # both stores — only the default branch may release.
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # tags + history: the monthly run diffs against the last release
 
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
 
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run test:coverage
-      - run: npm run icons
-      - run: npm run package
+      # Decide WHETHER to release and under WHICH tag. A tag push always proceeds,
+      # as does an explicit republish. The monthly run and a bare dispatch proceed only
+      # if something that actually ships (src/, scripts/) changed since the last
+      # tag — otherwise it would push a byte-identical build through store review
+      # every month for nothing.
+      - name: Plan
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          last="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+          # A tag push re-runs the publish for THAT tag; the checkout is already
+          # that tag, so nothing extra to check out.
+          if [ "$EVENT" = 'push' ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            echo "bump=none" >> "$GITHUB_OUTPUT"
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Explicit republish of an existing tag (retry a failed store publish).
+          if [ -n "${INPUT_TAG:-}" ]; then
+            if ! git rev-parse -q --verify "refs/tags/$INPUT_TAG" >/dev/null; then
+              echo "::error::No such tag: $INPUT_TAG"
+              exit 1
+            fi
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            echo "bump=none" >> "$GITHUB_OUTPUT"
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            echo "checkout=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            echo "::notice::Republishing $INPUT_TAG."
+            exit 0
+          fi
+          # Resume an interrupted release: a previous run bumped, tagged and
+          # pushed, then failed before the GitHub release existed. Finish that one
+          # instead of computing a new version it could never tag.
+          current="v$(node -p 'require("./package.json").version')"
+          if git rev-parse -q --verify "refs/tags/$current" >/dev/null &&
+            ! gh release view "$current" >/dev/null 2>&1; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            echo "bump=none" >> "$GITHUB_OUTPUT"
+            echo "tag=$current" >> "$GITHUB_OUTPUT"
+            # Build the TAG, not today's main: main may have moved on since, and
+            # that code must not go out under an older version number.
+            echo "checkout=$current" >> "$GITHUB_OUTPUT"
+            echo "::notice::Finishing the interrupted release of $current."
+            exit 0
+          fi
+          # schedule + manual dispatch: "release now, if there is anything to ship".
+          if [ -n "$last" ] && git diff --quiet "$last..HEAD" -- src scripts; then
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Nothing under src/ or scripts/ changed since $last — no release."
+            exit 0
+          fi
+          # Conventional Commits decide the bump: a `!` marker or BREAKING CHANGE
+          # is major, any feat is minor, everything else is a patch. Read the log
+          # into a variable first — `git log | grep -q` makes git die of SIGPIPE,
+          # and `pipefail` then reports the match as a MISS.
+          range="${last:+$last..}HEAD"
+          bodies="$(git log --format='%B' "$range")"
+          subjects="$(git log --format='%s' "$range")"
+          if grep -qE '^BREAKING[ -]CHANGE' <<<"$bodies" ||
+            grep -qE '^[a-z]+(\([^)]*\))?!:' <<<"$subjects"; then
+            bump=major
+          elif grep -qE '^feat(\([^)]*\))?:' <<<"$subjects"; then
+            bump=minor
+          else
+            bump=patch
+          fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+          echo "bump=$bump" >> "$GITHUB_OUTPUT"
+          echo "::notice::Releasing: $bump bump on top of ${last:-(no tag yet)}."
+
+      # A resume/republish builds that exact tag, not current main.
+      - name: Check out the tag being published
+        if: steps.plan.outputs.checkout != ''
+        env:
+          CHECKOUT: ${{ steps.plan.outputs.checkout }}
+        run: git checkout --detach "$CHECKOUT"
+
+      # A tag push (or a republish) must describe the version it actually ships;
+      # the monthly path creates the tag from package.json, so it is exempt.
+      - name: Check the tag matches the packaged version
+        if: steps.plan.outputs.proceed == 'true' && steps.plan.outputs.bump == 'none'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          want="v$(node -p 'require("./package.json").version')"
+          if [ "$TAG" != "$want" ]; then
+            echo "::error::Tag $TAG does not match the packaged version $want — refusing to publish."
+            exit 1
+          fi
+
+      - if: steps.plan.outputs.proceed == 'true'
+        run: npm ci
+
+      # The gate for the monthly run: this fails => no version bump, no tag, no
+      # release, nothing published.
+      - if: steps.plan.outputs.proceed == 'true'
+        run: npm run lint
+      - if: steps.plan.outputs.proceed == 'true'
+        run: npm run format:check
+      - if: steps.plan.outputs.proceed == 'true'
+        run: npm run test:coverage
+
+      # Bump LOCALLY only. The push happens further down, once the package and
+      # the Firefox lint have passed — otherwise a rejected package would leave a
+      # release commit and a public tag on main with nothing published.
+      - name: Bump the version
+        id: bump
+        if: steps.plan.outputs.proceed == 'true' && steps.plan.outputs.bump != 'none'
+        env:
+          BUMP: ${{ steps.plan.outputs.bump }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          npm version "$BUMP" -m 'chore(release): %s'
+          echo "tag=v$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+
+      # After the bump, so the manifest carries the new version.
+      - if: steps.plan.outputs.proceed == 'true'
+        run: npm run icons
+      - if: steps.plan.outputs.proceed == 'true'
+        run: npm run package
+
+      # The same Firefox check CI runs — a package AMO would reject must not be
+      # published just because it took the release path.
+      - name: Lint the Firefox build (web-ext)
+        if: steps.plan.outputs.proceed == 'true'
+        run: npx --yes web-ext@10 lint --source-dir=dist-firefox --warnings-as-errors=false
+
+      - name: Push the release commit and tag
+        if: steps.bump.outputs.tag != ''
+        # --atomic: without it a rejected branch update still pushes the tag,
+        # leaving an orphan that wedges every later release on "tag exists".
+        run: git push --atomic --follow-tags origin HEAD:"${GITHUB_REF_NAME}"
 
       - name: GitHub release
-        if: github.event_name == 'push'
+        id: ghrelease
+        if: steps.plan.outputs.proceed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.bump.outputs.tag || steps.plan.outputs.tag }}
         run: |
           # Use the preinstalled gh CLI (a standalone binary) instead of
           # softprops/action-gh-release@v2, which still bundled Node 20.
           # Idempotent: update assets if the release already exists, else create.
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" myapps-launcher*.zip --clobber
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" myapps-launcher*.zip --clobber
           else
-            gh release create "$GITHUB_REF_NAME" myapps-launcher*.zip --generate-notes
+            gh release create "$TAG" myapps-launcher*.zip --generate-notes
           fi
 
       - name: Detect Chrome Web Store secrets
         id: cws
+        if: steps.plan.outputs.proceed == 'true'
         env:
           ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
         run: |
-          if [ -n "$ID" ]; then
+          # All four, not just the id: a half-configured set would sail past this
+          # check and then hard-fail the publish after the release already exists.
+          if [ -n "$ID" ] && [ -n "$CLIENT_ID" ] && [ -n "$CLIENT_SECRET" ] && [ -n "$REFRESH_TOKEN" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Chrome Web Store secrets not set — skipping store publish. See docs/publishing.md."
+            echo "::warning::Chrome Web Store secrets incomplete — skipping store publish. See docs/publishing.md."
           fi
 
       - name: Upload & publish to the Chrome Web Store
         if: steps.cws.outputs.ready == 'true'
         env:
+          TAG: ${{ steps.bump.outputs.tag || steps.plan.outputs.tag }}
           EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
           CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
         run: |
           set -uo pipefail
+          # Exactly one, or stop: passing two paths as one --source would upload junk.
+          count="$(ls myapps-launcher-v*.zip 2>/dev/null | wc -l || true)"
+          if [ "$count" -ne 1 ]; then
+            echo "::error::expected exactly one Chrome package, found $count"
+            exit 1
+          fi
           ZIP="$(ls myapps-launcher-v*.zip)"
           echo "Uploading $ZIP"
           if ! out="$(npx --yes chrome-webstore-upload-cli@3 upload \
             --source "$ZIP" --extension-id "$EXTENSION_ID" --client-id "$CLIENT_ID" \
             --client-secret "$CLIENT_SECRET" --refresh-token "$REFRESH_TOKEN" 2>&1)"; then
             echo "$out"
-            # The store rejects uploads while a prior submission is in review.
-            # Treat that as a soft skip (the GitHub release still succeeded).
-            if echo "$out" | grep -qi "ITEM_NOT_UPDATABLE\|pending review"; then
-              echo "::warning::A previous submission is still in review — this version was not uploaded. Re-run the release once it is published, or cancel the pending submission first."
+            if grep -qiE 'already exists|duplicate' <<<"$out"; then
+              # This exact version is already uploaded — a retry after the publish
+              # step failed. Nothing to upload, but DO go on and publish it.
+              echo "::notice::Version already uploaded — continuing to publish it."
+            elif grep -qiE 'ITEM_NOT_UPDATABLE|pending review' <<<"$out"; then
+              # The store refuses uploads while a prior submission is in review.
+              # Soft skip: the GitHub release still succeeded.
+              echo "::warning::Nothing uploaded to the Chrome Web Store — a previous submission is still in review. Once it clears, re-run this workflow with the 'tag' input set to $TAG."
               exit 0
+            else
+              exit 1
             fi
-            exit 1
+          else
+            echo "$out"
           fi
-          echo "$out"
           if ! pub="$(npx --yes chrome-webstore-upload-cli@3 publish \
             --extension-id "$EXTENSION_ID" --client-id "$CLIENT_ID" \
             --client-secret "$CLIENT_SECRET" --refresh-token "$REFRESH_TOKEN" 2>&1)"; then
@@ -101,7 +274,7 @@ jobs:
             # Upload already succeeded; auto-publish can be gated on the dashboard
             # Privacy-practices tab (e.g. after adding a permission). Soft-skip so
             # the run stays green — finish + publish in the dashboard.
-            if echo "$pub" | grep -qi "Publish condition not met\|privacy"; then
+            if grep -qiE 'Publish condition not met|privacy' <<<"$pub"; then
               echo "::warning::Uploaded OK, but auto-publish is blocked until the Privacy practices tab is completed (new permissions need a justification). Finish it in the dashboard, then click Publish there or re-run this workflow."
               exit 0
             fi
@@ -111,18 +284,23 @@ jobs:
 
       - name: Detect Firefox AMO secrets
         id: amo
+        # Deliberately not the implicit success(): a hard CHROME failure must not
+        # cost Firefox its release. Gated on the GitHub release having succeeded,
+        # so an earlier failure (lint, package, push) still stops everything.
+        if: ${{ !cancelled() && steps.ghrelease.outcome == 'success' }}
         env:
           ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          SECRET: ${{ secrets.AMO_JWT_SECRET }}
         run: |
-          if [ -n "$ISSUER" ]; then
+          if [ -n "$ISSUER" ] && [ -n "$SECRET" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::AMO secrets not set — skipping Firefox publish. See docs/publishing.md."
+            echo "::warning::AMO secrets incomplete — skipping Firefox publish. See docs/publishing.md."
           fi
 
       - name: Sign & publish to Firefox AMO
-        if: steps.amo.outputs.ready == 'true'
+        if: ${{ !cancelled() && steps.amo.outputs.ready == 'true' }}
         env:
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
@@ -131,11 +309,26 @@ jobs:
           # A listed add-on is reviewed by Mozilla (hours–days), so don't block on
           # approval: --approval-timeout=0 submits the version and returns without
           # waiting (otherwise web-ext times out after 15 min and reds the release).
-          # The || guard keeps any other benign "awaiting review" state non-fatal.
-          npx --yes web-ext@latest sign \
+          if ! out="$(npx --yes web-ext@10 sign \
             --channel=listed \
             --source-dir=dist-firefox \
             --api-key="$AMO_JWT_ISSUER" \
             --api-secret="$AMO_JWT_SECRET" \
-            --approval-timeout=0 \
-          || echo "::warning::web-ext sign returned non-zero — the version is likely uploaded and awaiting Mozilla review. Check addons.mozilla.org/developers."
+            --approval-timeout=0 2>&1)"; then
+            echo "$out"
+            # Only "it is uploaded and queued for review" is benign. Bad credentials,
+            # a rejected manifest or a network failure must red the run instead of
+            # quietly reporting a release that never reached AMO.
+            # web-ext prints its full usage block (which itself mentions
+            # "--approval-timeout") when an option is rejected — that must never
+            # look like a benign "awaiting review".
+            if grep -qiE 'unknown arguments?:|not enough non-option arguments' <<<"$out"; then
+              exit 1
+            fi
+            if grep -qiE 'awaiting review|submitted for review|queued for review|already exists|duplicate version' <<<"$out"; then
+              echo "::warning::Uploaded to AMO and awaiting Mozilla review. Check addons.mozilla.org/developers."
+              exit 0
+            fi
+            exit 1
+          fi
+          echo "$out"

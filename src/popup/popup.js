@@ -23,7 +23,12 @@ let current = [];
 let selected = 0;
 
 async function init() {
-  [apps, stats, settings] = await Promise.all([getApps(), getStats(), getSettings()]);
+  wireEvents();
+  try {
+    [apps, stats, settings] = await Promise.all([getApps(), getStats(), getSettings()]);
+  } catch {
+    /* storage unavailable — fall back to the defaults above rather than a blank popup */
+  }
   const theme = settings.theme || 'auto'; // 'auto' | 'light' | 'dark'
   document.documentElement.dataset.theme = theme;
   try {
@@ -33,7 +38,10 @@ async function init() {
   }
   emptyEl.hidden = apps.length > 0;
   render();
+  searchEl.focus();
+}
 
+function wireEvents() {
   searchEl.addEventListener('input', render);
   searchEl.addEventListener('keydown', onKeyDown);
   document.getElementById('open-options').addEventListener('click', openOptions);
@@ -59,11 +67,10 @@ async function init() {
   );
   resultsEl.addEventListener('scroll', closeCtxMenu);
   window.addEventListener('blur', closeCtxMenu);
-
-  searchEl.focus();
 }
 
 function render() {
+  closeCtxMenu(); // the rows are about to be replaced under it
   const q = searchEl.value.trim();
   current = rankApps(apps, searchEl.value, Date.now(), stats);
   // When you have apps but none match, offer a fallback search action.
@@ -195,9 +202,11 @@ function onKeyDown(e) {
   } else if (e.key === 'Enter') {
     e.preventDefault();
     launch(selected, e.ctrlKey || e.metaKey); // Ctrl/Cmd+Enter → background tab
-  } else if (e.altKey && e.key >= '1' && e.key <= '9') {
+  } else if (e.altKey && /^Digit[1-9]$/.test(e.code || '')) {
+    // Match the PHYSICAL key: macOS turns Option+2 into '™', so e.key would never
+    // be a digit there and the advertised ⌥1–9 shortcut would do nothing.
     e.preventDefault();
-    launch(Number(e.key) - 1); // Alt+1–9 → quick-launch that result
+    launch(Number(e.code.slice(5)) - 1); // Alt+1–9 → quick-launch that result
   } else if (e.key === 'Escape') {
     e.preventDefault();
     if (searchEl.value) {
@@ -231,7 +240,9 @@ async function launch(i, background = false) {
     doFallback(r);
     return;
   }
-  await recordLaunch(r.app.id, Date.now());
+  // Usage stats are best-effort: a failed write (quota, transient error) must
+  // never stop the app from opening — launching IS the job.
+  await recordLaunch(r.app.id, Date.now()).catch(() => {});
   const target = withAwsRegion(r.app.url, r.app.name, settings.awsRegion);
   if (background) {
     chrome.tabs.create({ url: target, active: false });

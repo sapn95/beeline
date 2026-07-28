@@ -36,8 +36,10 @@ chrome.runtime.onInstalled.addListener((details) => {
 chrome.runtime.onStartup.addListener(ensureAlarm);
 
 async function ensureAlarm() {
-  // Promise form works on both Chrome (MV3) and Firefox; the callback form does not.
-  const existing = await chrome.alarms.get(SYNC_ALARM);
+  // Promise form works on both Chrome (MV3) and Firefox; the callback form does
+  // not. A failed read must not become an unhandled rejection in the worker —
+  // re-creating an alarm that already exists is harmless.
+  const existing = await chrome.alarms.get(SYNC_ALARM).catch(() => null);
   if (!existing) chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MIN });
 }
 
@@ -60,7 +62,8 @@ async function syncOpenTab() {
   // Sync the first LIVE My Apps tab. Skipping discarded/frozen tabs avoids
   // hanging executeScript; checking all matches (not just the first) means one
   // discarded tab doesn't make the alarm skip a live one.
-  const tabs = await chrome.tabs.query({ url: MYAPPS_PATTERN });
+  // Rejects when the optional My Apps origin has not been granted yet.
+  const tabs = await chrome.tabs.query({ url: MYAPPS_PATTERN }).catch(() => []);
   const live = tabs.find((t) => !t.discarded);
   if (live) await syncTab(live.id);
 }
@@ -80,9 +83,12 @@ async function syncTab(tabId) {
     .catch(() => false);
   if (!allowed) return;
 
-  // Stand down while a manual import owns the grid (see IMPORT_FLAG).
+  // Stand down while a manual import owns the grid (see IMPORT_FLAG). A failed
+  // READ also stands down: it can't prove no import is running, and two loops
+  // scrolling the same virtualised grid make each other skip tiles.
   const flag = await chrome.storage.local.get(IMPORT_FLAG).catch(() => null);
-  const ts = flag?.[IMPORT_FLAG] || 0;
+  if (!flag) return;
+  const ts = flag[IMPORT_FLAG] || 0;
   if (ts && Date.now() - ts < IMPORT_FLAG_TTL_MS) return;
 
   const scraped = await collectTilesFromTab(tabId);

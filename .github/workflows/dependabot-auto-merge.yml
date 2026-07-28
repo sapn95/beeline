@@ -1,0 +1,179 @@
+name: Dependabot auto-merge
+
+# Every Dependabot update merges itself — but only after CI is green on that very
+# commit. The job waits for all three check runs (CI `build`, CodeQL `analyze`
+# and the `CodeQL` code-scanning result) and merges only if every one of them
+# succeeds, so a red build simply leaves the PR open.
+#
+# Requires "Allow auto-merge"/squash merging on the repo. Nothing from the PR is
+# checked out or executed here, so `pull_request` (not the riskier
+# `pull_request_target`) is the right trigger; Dependabot runs start from a
+# read-only token, which the permissions block below raises — GitHub's documented
+# recipe for this job.
+
+on:
+  pull_request:
+  # Daily catch-up (see the `reconcile` job).
+  schedule:
+    - cron: '0 5 * * *'
+
+# One poll per PR: a new push supersedes the running job rather than racing it.
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  auto-merge:
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Anyone with push access can add a commit to a Dependabot branch, and that
+      # commit would then ride into main on Dependabot's ticket. So check the
+      # authorship of every commit and bail out if one is not Dependabot's.
+      - name: Check who wrote the commits on this branch
+        id: commits
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # One page of up to 100 (Dependabot PRs have one or two commits).
+          # NOT --paginate: with --jq that filters per page and prints one line
+          # per page, which would never equal the single expected author.
+          # Author login comes from the commit's email, which anyone with push
+          # access could set to Dependabot's — so require every commit to carry a
+          # valid signature too. Dependabot signs all of its commits. Fetch once
+          # and require the list to END at the SHA we later merge, so a
+          # force-push between the two calls cannot make us vet one history and
+          # merge another.
+          commits="$(gh api "repos/$REPO/pulls/$PR/commits?per_page=100" || echo '[]')"
+          head_sha="$(jq -r '.[-1].sha // ""' <<<"$commits")"
+          authors="$(jq -r '[.[] | .author.login // "unknown"] | unique | join(",")' <<<"$commits")"
+          signed="$(jq -r '[.[] | .commit.verification.verified] | all' <<<"$commits")"
+          if [ "$head_sha" = "$SHA" ] && [ "$authors" = 'dependabot[bot]' ] && [ "$signed" = 'true' ]; then
+            echo "clean=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "clean=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Not auto-merging: head=$head_sha (expected $SHA), authors=$authors, all signed=$signed. Review and merge by hand."
+          fi
+
+      # Poll the three check runs by name instead of `gh pr checks --watch`: this
+      # job is itself a check run on the same commit, so watching "all checks"
+      # would wait for itself forever.
+      - name: Wait for CI to pass
+        id: ci
+        if: steps.commits.outputs.clean == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # "green" only once ALL THREE named checks (CI build, CodeQL analyse and
+          # the code-scanning result) have completed successfully; anything else
+          # (failure, cancellation, never started) leaves the PR open.
+          verdict() {
+            gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100" --jq '
+              # Newest run per name only: a re-run leaves the superseded attempt
+              # in the list, and neither its stale success nor its stale failure
+              # should decide anything.
+              [ .check_runs[]
+                | select(.name == "build" or .name == "analyze" or .name == "CodeQL") ]
+              | group_by(.name) | map(max_by(.id)) as $runs
+              | if ([$runs[] | select(.status == "completed" and .conclusion != "success")] | length) > 0
+                then "failed"
+                elif ([$runs[] | select(.status == "completed" and .conclusion == "success")] | length) == 3
+                then "green"
+                else "pending"
+                end'
+          }
+          for _ in $(seq 1 88); do   # 88 x 15s ≈ 22 min, inside the job timeout
+            # A transient API error must not kill the job: no further pull_request
+            # event would fire for this PR, so it would never be retried.
+            state="$(verdict || echo pending)"
+            case "$state" in
+              green)
+                echo "green=true" >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+              failed)
+                echo "::notice::CI is red on this commit — leaving the PR open."
+                echo "green=false" >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+            esac
+            sleep 15
+          done
+          echo "::notice::CI did not finish in time — leaving the PR open."
+          echo "green=false" >> "$GITHUB_OUTPUT"
+
+      - name: Merge
+        if: steps.ci.outputs.green == 'true'
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # --match-head-commit: merge exactly the commit whose authorship and CI we
+        # checked. Anything pushed during the poll aborts the merge instead of
+        # riding in unchecked.
+        run: gh pr merge --squash --delete-branch --match-head-commit "$SHA" "$PR_URL"
+
+  # A PR whose CI finished after the poll gave up — or that went green only on a
+  # later re-run — gets no further pull_request event, so nothing would ever
+  # merge it. This sweeps up those leftovers once a day using the same rules.
+  reconcile:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Merge every open Dependabot PR that is already green
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          prs="$(gh pr list --repo "$REPO" --author 'app/dependabot' --state open --limit 100 \
+            --json number,headRefOid --jq '.[] | "\(.number) \(.headRefOid)"')"
+          if [ -z "$prs" ]; then
+            echo "No open Dependabot pull requests."
+            exit 0
+          fi
+          # Every PR is handled independently: one rebased-mid-sweep or otherwise
+          # unmergeable PR must not stop the rest of the batch.
+          while read -r pr sha; do
+            [ -n "$pr" ] || continue
+            commits="$(gh api "repos/$REPO/pulls/$pr/commits?per_page=100" </dev/null || echo '[]')"
+            head_sha="$(jq -r '.[-1].sha // ""' <<<"$commits")"
+            authors="$(jq -r '[.[] | .author.login // "unknown"] | unique | join(",")' <<<"$commits")"
+            signed="$(jq -r '[.[] | .commit.verification.verified] | all' <<<"$commits")"
+            if [ "$head_sha" != "$sha" ] || [ "$authors" != 'dependabot[bot]' ] || [ "$signed" != 'true' ]; then
+              echo "::notice::PR #$pr: head=$head_sha (listed $sha), authors=$authors, all signed=$signed — leaving it for review."
+              continue
+            fi
+            state="$(gh api "repos/$REPO/commits/$sha/check-runs?per_page=100" </dev/null --jq '
+              [ .check_runs[]
+                | select(.name == "build" or .name == "analyze" or .name == "CodeQL") ]
+              | group_by(.name) | map(max_by(.id)) as $runs
+              | if ([$runs[] | select(.status == "completed" and .conclusion != "success")] | length) > 0
+                then "failed"
+                elif ([$runs[] | select(.status == "completed" and .conclusion == "success")] | length) == 3
+                then "green"
+                else "pending"
+                end' || echo pending)"
+            if [ "$state" = 'green' ]; then
+              # A rebase between listing and merging makes this fail by design —
+              # note it and move on to the next PR.
+              gh pr merge --repo "$REPO" --squash --delete-branch --match-head-commit "$sha" "$pr" </dev/null ||
+                echo "::notice::PR #$pr could not be merged right now (head moved?) — next sweep will retry."
+            else
+              echo "::notice::PR #$pr is $state — leaving it open."
+            fi
+          done <<<"$prs"

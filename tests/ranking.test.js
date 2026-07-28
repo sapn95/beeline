@@ -40,7 +40,7 @@ describe('rankApps', () => {
 
   it('floats recently launched apps to the top', () => {
     const now = 24 * 60 * 60 * 1000 * 100;
-    const stats = { [byId('Salesforce')]: { count: 1, lastLaunched: now } };
+    const stats = { [byId('Salesforce')]: { count: 0, lastLaunched: now } };
     expect(rankApps(apps, '', now, stats)[0].app.name).toBe('Salesforce');
   });
 });

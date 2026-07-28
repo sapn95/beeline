@@ -12,13 +12,24 @@ export function isValidHttpsUrl(value) {
   }
 }
 
-/** Canonical form used for identity and storage: drops the fragment, keeps the
- * rest verbatim so two tiles pointing at the same launch URL collapse to one. */
+/** Canonical form used for IDENTITY only: drops the fragment, keeps the rest
+ * verbatim so two tiles pointing at the same launch URL collapse to one. The
+ * stored URL keeps its fragment — hash-routed apps (Azure Portal blades, Power
+ * BI pages) live entirely in it, and dropping it opens the wrong page. */
 export function canonicalUrl(url) {
   try {
     const u = new URL(url);
     u.hash = '';
     return u.toString();
+  } catch {
+    return String(url ?? '').trim();
+  }
+}
+
+/** Tidy an accepted URL for storage, fragment and all. */
+export function normalizeUrl(url) {
+  try {
+    return new URL(url).toString();
   } catch {
     return String(url ?? '').trim();
   }
@@ -50,7 +61,8 @@ export function normalizeApp(raw) {
   const url = String(raw.url ?? '').trim();
   if (!name || !isValidHttpsUrl(url)) return null;
 
-  const app = { id: appId(url), name, url: canonicalUrl(url) };
+  // Identity ignores the fragment; the launch URL keeps it.
+  const app = { id: appId(url), name, url: normalizeUrl(url) };
   const icon = String(raw.iconUrl ?? '').trim();
   if (icon && isValidHttpsUrl(icon)) app.iconUrl = icon;
   // Provenance: 'manual' (user added/edited) or 'myapps' (scraped). Drives

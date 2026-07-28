@@ -79,6 +79,20 @@ npm version patch            # or minor / major  -> creates a vX.Y.Z git tag
 git push --follow-tags
 ```
 
+### …or let it ship itself
+
+`release.yml` also runs on a monthly schedule (1st, 06:00 UTC). That run:
+
+1. **skips entirely** unless `src/` or `scripts/` changed since the last `v*`
+   tag — a release that ships an identical build would only burn store review;
+2. runs lint, `prettier --check` and the full coverage-gated test suite, and
+   stops there if anything is red — no bump, no tag, nothing published;
+3. picks the bump from the Conventional Commits since that tag (`feat:` → minor,
+   `!` / `BREAKING CHANGE` → major, otherwise patch), runs `npm version`, and
+   pushes the commit + tag;
+4. continues into the normal build → GitHub release → store publish steps in the
+   same run.
+
 The tag push triggers `release.yml`, which:
 
 1. installs, lints, tests (with coverage), and packages the zip;
