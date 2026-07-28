@@ -41,6 +41,15 @@ describe('apps storage', () => {
   });
 });
 
+describe('corrupt storage', () => {
+  it('returns [] when the stored apps value is not an array', async () => {
+    // Anything else reaches renderList()/rankApps as a non-array and throws,
+    // which would leave the user with a dead page instead of an empty list.
+    await globalThis.chrome.storage.local.set({ apps: { not: 'an array' } });
+    expect(await getApps()).toEqual([]);
+  });
+});
+
 describe('mutateApps', () => {
   it('reads, applies the mutator, and persists the result', async () => {
     await saveApps([{ id: '1', name: 'A', url: 'https://a.com/' }]);

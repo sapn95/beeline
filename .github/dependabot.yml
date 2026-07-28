@@ -1,4 +1,6 @@
 version: 2
+# One grouped PR per ecosystem per week, majors included. Every Dependabot PR
+# merges itself once CI is green on it — see workflows/dependabot-auto-merge.yml.
 updates:
   # Keep GitHub Actions current (so deprecations like Node 20 -> 24 are auto-PR'd).
   - package-ecosystem: github-actions

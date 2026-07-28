@@ -18,19 +18,42 @@ let editingId = null;
 let editDraft = null; // {name, url} in-progress edit, preserved across re-renders
 let appFilter = '';
 let pendingAppsRefresh = false; // a storage change arrived while editing — apply it on exit
+let settingsLoaded = false; // until the form holds the SAVED settings, never write it back
 
 async function init() {
+  // Wire the controls FIRST. If a storage read then fails, the page is still a
+  // working page with an error message — not a dead one where every button is
+  // silently unbound and it looks like the apps are gone.
+  wireControls();
+  populateRegions();
+
   // Load + heal: re-normalise stored apps once so legacy names saved before the
   // hyphen-spacing fix (e.g. "S-SBB -SAP") get cleaned up in place. Writes only
   // when something actually changed.
-  apps = await mutateApps((current) => {
-    const cleaned = normalizeAppList(current);
-    return JSON.stringify(cleaned) === JSON.stringify(current) ? undefined : cleaned;
-  });
+  try {
+    apps = await mutateApps((current) => {
+      const cleaned = normalizeAppList(current);
+      return JSON.stringify(cleaned) === JSON.stringify(current) ? undefined : cleaned;
+    });
+  } catch (e) {
+    apps = await getApps().catch(() => []);
+    setStatus(`Could not read your apps: ${e?.message || e}`);
+  }
   renderList();
-  populateRegions();
-  await loadSettings();
+  try {
+    await loadSettings();
+  } catch {
+    setStatus('Could not read your settings — using defaults.');
+  }
 
+  // Show the running version (read from the manifest, so it always matches).
+  const footer = document.createElement('footer');
+  footer.className = 'appver';
+  footer.textContent = `Beeline v${chrome.runtime.getManifest().version}`;
+  document.querySelector('main').appendChild(footer);
+}
+
+function wireControls() {
   document.getElementById('add-form').addEventListener('submit', onAdd);
   document.getElementById('import-myapps').addEventListener('click', onImportMyApps);
   document.getElementById('export').addEventListener('click', onExport);
@@ -58,12 +81,6 @@ async function init() {
     apps = await getApps();
     renderList();
   });
-
-  // Show the running version (read from the manifest, so it always matches).
-  const footer = document.createElement('footer');
-  footer.className = 'appver';
-  footer.textContent = `Beeline v${chrome.runtime.getManifest().version}`;
-  document.querySelector('main').appendChild(footer);
 }
 
 function setStatus(msg) {
@@ -227,7 +244,13 @@ function renderEditRow(app) {
   save.type = 'button';
   save.textContent = 'Save';
   save.addEventListener('click', () =>
-    onEditSave(app.id, nameInput.value, urlInput.value, keepBox ? keepBox.checked : true),
+    onEditSave(
+      app.id,
+      nameInput.value,
+      urlInput.value,
+      keepBox ? keepBox.checked : true,
+      app.iconUrl,
+    ),
   );
 
   const cancel = document.createElement('button');
@@ -248,10 +271,12 @@ function renderEditRow(app) {
   return li;
 }
 
-async function onEditSave(oldId, name, url, keep) {
+async function onEditSave(oldId, name, url, keep, iconUrl) {
   // keep=true pins the edit as a manual app (sync leaves it alone); keep=false
   // leaves it tagged 'myapps', so a future sync may overwrite or remove it.
-  const updated = normalizeApp({ name, url, source: keep ? 'manual' : 'myapps' });
+  // The icon travels with the edit: the old record is about to be dropped, and
+  // for a pinned ('manual') app no later sync would ever restore it.
+  const updated = normalizeApp({ name, url, iconUrl, source: keep ? 'manual' : 'myapps' });
   if (!updated) {
     setStatus('Enter a name and a valid https:// URL.');
     return;
@@ -340,7 +365,13 @@ function scrollMyAppsStepInPage() {
     !!el && el.scrollHeight - el.clientHeight > min && el.clientHeight > 150;
   const gap = (el) => el.scrollHeight - (el.scrollTop + el.clientHeight);
   const nearestScroller = (node) => {
-    for (let el = node.parentElement; el && el !== document.body; el = el.parentElement) {
+    // Walk past <body> too — on some layouts the grid's scroll container IS the
+    // body. Stop at <html>, which window.scrollBy already drives.
+    for (
+      let el = node.parentElement;
+      el && el !== document.documentElement;
+      el = el.parentElement
+    ) {
       if (overflows(el, 4)) return el;
     }
     return null;
@@ -377,9 +408,16 @@ function scrollMyAppsStepInPage() {
     maxRemaining = Math.max(maxRemaining, gap(el));
   }
 
-  // Nothing could advance → genuinely at the bottom, even if trailing padding
-  // keeps maxRemaining above zero. Otherwise report the remaining gradient.
-  return moved ? Math.max(0, maxRemaining) : 0;
+  if (moved) return Math.max(0, maxRemaining);
+  // Nothing advanced. If a scroller we CAN see still reports distance to go, the
+  // answer is "unknown" (null), never "bottom" — calling that bottom would let a
+  // single virtualised slice pass as a complete read, and the reconcile would
+  // then delete every app that wasn't in it. If nothing anywhere has room left,
+  // the page really is fully shown (a short list that needs no scrolling), so
+  // report 0. NOTE: a scroller we cannot see at all (shadow root, iframe) is
+  // indistinguishable from that case here — the growth cap in accumulateApps is
+  // the remaining backstop.
+  return maxRemaining <= 4 ? 0 : null;
 }
 
 // Scroll + scrape one round. Returns the app array, or null when the page is
@@ -518,20 +556,33 @@ async function collectAllApps(tabId, onProgress) {
 }
 
 async function onImportMyApps() {
+  const btn = document.getElementById('import-myapps');
+  if (btn.disabled) return; // already importing
+  // Disable BEFORE the permission prompt: the page stays interactive while that
+  // bubble is open, so a second click would start a second import — and the
+  // first one to finish would release the grid lock under the other.
+  btn.disabled = true;
+  const label = btn.textContent;
   setStatus('Requesting access to My Apps…');
-  const granted = await chrome.permissions.request({ origins: [MYAPPS_PATTERN] });
+  const granted = await chrome.permissions
+    .request({ origins: [MYAPPS_PATTERN] })
+    .catch(() => false);
   if (!granted) {
+    btn.disabled = false;
     setStatus('Permission denied — cannot read My Apps.');
     return;
   }
 
-  const btn = document.getElementById('import-myapps');
-  btn.disabled = true;
-  const label = btn.textContent;
   btn.textContent = 'Importing…';
   setStatus('Reading your apps in a background window (you can keep working here)…');
   // Claim the grid so the background auto-sync stands down for the duration.
-  await chrome.storage.local.set({ [IMPORT_FLAG]: Date.now() }).catch(() => {});
+  // If the claim FAILS we can't be sure sync stays off, and a second scroll loop
+  // makes this read skip tiles — so the run is downgraded to merge-only below
+  // and can never prune. Losing apps is worse than a stale entry.
+  const claimed = await chrome.storage.local
+    .set({ [IMPORT_FLAG]: Date.now() })
+    .then(() => true)
+    .catch(() => false);
 
   let best;
   let complete;
@@ -542,6 +593,7 @@ async function onImportMyApps() {
       collectAllApps(tabId, showImportProgress),
     ));
   } catch (e) {
+    renderList(); // drop the progress placeholder — the list must stay visible
     setStatus(`Import failed: ${e?.message || e}. Open My Apps once to sign in, then try again.`);
     return;
   } finally {
@@ -564,14 +616,17 @@ async function onImportMyApps() {
   const scraped = best.map((a) => ({ ...a, source: 'myapps' }));
 
   // Only reconcile (which removes apps no longer in My Apps) when we scrolled all
-  // the way through; a partial read only adds, so it can never wrongly delete.
-  // mutateApps does this atomically against the freshest stored list.
+  // the way through AND owned the grid while doing it; any other read only adds,
+  // so it can never wrongly delete. mutateApps does this atomically against the
+  // freshest stored list.
+  const canPrune = complete && claimed;
   const before = apps.length;
   try {
     apps = await mutateApps((current) =>
-      complete ? reconcileApps(current, scraped) : mergeApps(current, scraped),
+      canPrune ? reconcileApps(current, scraped) : mergeApps(current, scraped),
     );
   } catch (err) {
+    renderList(); // ditto: never leave the user staring at "importing…"
     setStatus(`Found ${best.length} app(s) but saving failed: ${err.message}`);
     return;
   }
@@ -582,8 +637,12 @@ async function onImportMyApps() {
   // mismatch is obvious instead of silent.
   const account = accountHintFromApps(scraped);
   const who = account ? ` (account: ${account})` : '';
-  if (complete) {
+  if (canPrune) {
     setStatus(`Synced ${best.length} app(s) from My Apps${who}. Your manual apps are kept.`);
+  } else if (complete) {
+    setStatus(
+      `Imported ${best.length} app(s) (+${delta})${who} — the background sync could not be paused, so nothing was removed.`,
+    );
   } else {
     setStatus(
       `Imported ${best.length} app(s) (+${delta})${who} — didn't reach the end, so nothing was removed. Run Import again to finish.`,
@@ -606,14 +665,22 @@ async function onExport() {
 async function onImportFile(e) {
   const file = e.target.files?.[0];
   if (!file) return;
+  let parsed;
   try {
-    const parsed = JSON.parse(await file.text());
+    parsed = JSON.parse(await file.text());
+  } catch {
+    setStatus('That file is not valid JSON.');
+    e.target.value = '';
+    return;
+  }
+  try {
     const before = apps.length;
     apps = await mutateApps((current) => mergeApps(current, Array.isArray(parsed) ? parsed : []));
     renderList();
     setStatus(`Imported ${apps.length - before} new app(s) from file.`);
-  } catch {
-    setStatus('That file is not valid JSON.');
+  } catch (err) {
+    // A storage failure is NOT a malformed file — say which one it was.
+    setStatus(`Could not save the imported apps: ${err.message}`);
   } finally {
     e.target.value = '';
   }
@@ -716,9 +783,17 @@ async function loadSettings() {
   document.getElementById('aws-region').value = settings.awsRegion;
   document.getElementById('theme').value = settings.theme;
   applyTheme(settings.theme);
+  settingsLoaded = true;
 }
 
 async function onSettingChange() {
+  // The form still shows the markup defaults if the saved settings could not be
+  // read (or have not arrived yet). Writing it back would silently reset every
+  // other setting to a default the user never chose.
+  if (!settingsLoaded) {
+    setStatus('Settings are not loaded yet — reload the page before changing them.');
+    return;
+  }
   const theme = document.getElementById('theme').value;
   await saveSettings({
     openInNewTab: document.getElementById('open-in-new-tab').checked,
@@ -731,4 +806,8 @@ async function onSettingChange() {
   setStatus('Settings saved.');
 }
 
-await init();
+try {
+  await init();
+} catch (e) {
+  setStatus(`Beeline could not start: ${e?.message || e}. Reload the page.`);
+}

@@ -33,11 +33,22 @@ describe('appId', () => {
 });
 
 describe('normalizeApp', () => {
-  it('collapses whitespace, drops the fragment, derives an id', () => {
+  it('collapses whitespace and derives an id that ignores the fragment', () => {
     const app = normalizeApp({ name: '  Sales   Force ', url: 'https://a.com/x#y' });
     expect(app.name).toBe('Sales Force');
-    expect(app.url).toBe('https://a.com/x');
-    expect(app.id).toBe(appId('https://a.com/x'));
+    // The fragment is KEPT: hash-routed apps (Azure Portal blades, Power BI
+    // pages) live entirely in it, so dropping it would open the wrong page.
+    expect(app.url).toBe('https://a.com/x#y');
+    expect(app.id).toBe(appId('https://a.com/x')); // ...but identity ignores it
+  });
+
+  it('treats two deep links into the same app as one entry', () => {
+    const list = [
+      { name: 'Portal blade A', url: 'https://portal.example.com/#/a' },
+      { name: 'Portal blade B', url: 'https://portal.example.com/#/b' },
+    ];
+    expect(normalizeApp(list[0]).url).toBe('https://portal.example.com/#/a');
+    expect(normalizeApp(list[0]).id).toBe(normalizeApp(list[1]).id);
   });
 
   it('heals stray spaces around joining hyphens but keeps real separators', () => {

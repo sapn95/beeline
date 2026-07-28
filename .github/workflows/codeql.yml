@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '0 6 * * 1' # weekly, Monday 06:00 UTC
 
+# A force-rebase should not leave a redundant 15-minute analysis running.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

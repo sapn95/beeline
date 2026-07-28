@@ -142,6 +142,85 @@ describe('accumulateApps', () => {
     expect(rounds).toBeLessThan(10); // stopped at the cap, nowhere near maxRounds (100)
   });
 
+  it('never calls a grid complete while it still has room to scroll', async () => {
+    // The single line between a partial read and reconcileApps pruning the list:
+    // "at the bottom" must mean <= 4px left, not "the scroll returned a number".
+    // noGrowthCap is set well above stableLimit so the cap cannot mask it.
+    const all = [{ name: 'a', url: 'https://a.example' }];
+    const res = await accumulateApps({
+      scrapeRound: () => Promise.resolve(all),
+      scrollRound: () => Promise.resolve(900), // always more to go
+      sleep: NOOP,
+      stableLimit: 3,
+      noGrowthCap: 25,
+      maxRounds: 60,
+    });
+    expect(res.reachedBottom).toBe(false);
+    expect(res.complete).toBe(false); // merge-only: nothing may be pruned
+  });
+
+  it('needs several stable at-the-bottom rounds before declaring completeness', async () => {
+    let rounds = 0;
+    const res = await accumulateApps({
+      scrapeRound: () => {
+        rounds += 1;
+        return Promise.resolve([{ name: 'a', url: 'https://a.example' }]);
+      },
+      scrollRound: () => Promise.resolve(0), // at the bottom from round one
+      sleep: NOOP,
+      // No stableLimit here on purpose: this pins the DEFAULT, which is what the
+      // options page relies on when it does not pass one.
+    });
+    expect(res.complete).toBe(true);
+    expect(rounds).toBeGreaterThanOrEqual(5); // one lucky round is not enough
+  });
+
+  it('does not treat "a little left to scroll" as the bottom', async () => {
+    // 100px still to go is NOT the bottom; only <= 4 is. Widening that threshold
+    // would let a partial read count as complete and prune the list.
+    const res = await accumulateApps({
+      scrapeRound: () => Promise.resolve([{ name: 'a', url: 'https://a.example' }]),
+      scrollRound: () => Promise.resolve(100),
+      sleep: NOOP,
+      stableLimit: 3,
+      noGrowthCap: 25,
+      maxRounds: 60,
+    });
+    expect(res.reachedBottom).toBe(false);
+    expect(res.complete).toBe(false);
+  });
+
+  it('does not call a round-capped run complete just because it ended at the bottom', async () => {
+    // Tiles keep appearing, so `stable` never accrues, but every scroll reports
+    // the bottom. Ending on maxRounds must still be an incomplete (merge-only)
+    // read — completeness comes from convergence, not from the last data point.
+    let n = 0;
+    const res = await accumulateApps({
+      scrapeRound: () => Promise.resolve([{ name: `a${n}`, url: `https://a${n++}.example` }]),
+      scrollRound: () => Promise.resolve(0), // "at the bottom" every time
+      sleep: NOOP,
+      maxRounds: 6,
+      stableLimit: 5,
+    });
+    expect(res.reachedBottom).toBe(true);
+    expect(res.complete).toBe(false);
+  });
+
+  it('gives up at the deadline and reports an incomplete read', async () => {
+    let scraped = 0;
+    const res = await accumulateApps({
+      scrapeRound: () => {
+        scraped += 1;
+        return Promise.resolve([{ name: 'a', url: 'https://a.example' }]);
+      },
+      scrollRound: () => Promise.resolve(900),
+      sleep: NOOP,
+      deadline: Date.now() - 1, // already past
+    });
+    expect(scraped).toBe(0);
+    expect(res.complete).toBe(false);
+  });
+
   it('ignores tiles with no url and works with the default sleep', async () => {
     let n = 0;
     const res = await accumulateApps({

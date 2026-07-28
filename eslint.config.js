@@ -30,8 +30,9 @@ export default [
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',
-      // node for fs-based tests, browser for the jsdom-based importer test.
-      globals: { ...globals.node, ...globals.browser },
+      // node for fs-based tests, browser + webextensions for the jsdom tests
+      // that drive the popup/options/background scripts against a fake chrome.
+      globals: { ...globals.node, ...globals.browser, ...globals.webextensions },
     },
   },
 ];

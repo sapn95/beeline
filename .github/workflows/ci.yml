@@ -34,7 +34,14 @@ jobs:
         run: npm run format:check
 
       - name: Generate icons (verify generator is reproducible)
-        run: npm run icons
+        run: |
+          npm run icons
+          # porcelain, not `diff --exit-code`: this also catches a NEW icon file.
+          if [ -n "$(git status --porcelain -- src/icons)" ]; then
+            git status --porcelain -- src/icons
+            echo "::error::The icon generator is not reproducible — commit the regenerated icons."
+            exit 1
+          fi
 
       - name: Test with coverage
         run: npm run test:coverage
@@ -43,7 +50,7 @@ jobs:
         run: npm run package
 
       - name: Lint Firefox build (web-ext)
-        run: npx --yes web-ext@latest lint --source-dir=dist-firefox --warnings-as-errors=false
+        run: npx --yes web-ext@10 lint --source-dir=dist-firefox --warnings-as-errors=false
 
       - name: Upload extension builds
         uses: actions/upload-artifact@v7
@@ -53,7 +60,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload coverage
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: coverage
