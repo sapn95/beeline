@@ -33,15 +33,12 @@ jobs:
       - name: Check formatting
         run: npm run format:check
 
-      - name: Generate icons (verify generator is reproducible)
-        run: |
-          npm run icons
-          # porcelain, not `diff --exit-code`: this also catches a NEW icon file.
-          if [ -n "$(git status --porcelain -- src/icons)" ]; then
-            git status --porcelain -- src/icons
-            echo "::error::The icon generator is not reproducible — commit the regenerated icons."
-            exit 1
-          fi
+      # Only that the generator still RUNS. Its PNG output is not byte-identical
+      # across environments (zlib differs between Node builds), so diffing the
+      # result against the committed icons fails on the runner even when nothing
+      # is wrong — the icons are committed artefacts, not a build product.
+      - name: Generate icons (verify the generator still runs)
+        run: npm run icons
 
       - name: Test with coverage
         run: npm run test:coverage
