@@ -40,8 +40,9 @@ Follow Google's guide:
 
 1. In Google Cloud Console, create an OAuth client (type **Desktop app**) and
    enable the **Chrome Web Store API**. This gives you a **client ID** and
-   **client secret**. (On the OAuth consent screen, add your Google account as a
-   **test user** — the app can stay in "Testing".)
+   **client secret**. Publish the OAuth consent screen (**In production**) —
+   leaving it in "Testing" makes every refresh token expire after ~7 days, see
+   [Keeping the credentials alive](#keeping-the-credentials-alive).
 2. Generate a **refresh token** once with the bundled helper, which opens the
    consent screen, captures the loopback redirect, and prints the token:
 
@@ -70,6 +71,32 @@ repository secret** — using the same names:
 
 > If these are absent, the release job still builds and creates the GitHub
 > release — it just prints a warning and skips the store publish.
+
+## Keeping the credentials alive
+
+A Chrome Web Store refresh token minted while the OAuth consent screen is in
+**Testing** is killed by Google after about **7 days**. Publish the consent
+screen (Google Cloud → APIs & Services → OAuth consent screen → **Publish app**,
+i.e. Testing → **In production**) and the token stops expiring — that is the
+permanent fix, and it needs no verification for an app that only requests the
+`chromewebstore` scope for its own developer account.
+
+Renewing by hand, when it does expire (`invalid_grant` in the release log):
+
+```bash
+node scripts/get-cws-token.mjs <CLIENT_ID> <CLIENT_SECRET>   # BROWSER="Google Chrome"
+gh secret set CHROME_REFRESH_TOKEN --body "<the new token>"
+```
+
+Then re-publish the version that missed its store — **Actions → Release → Run
+workflow**, with the `tag` input set to that tag (e.g. `v0.1.10`). That path
+rebuilds from the tag and skips the version bump, so nothing else moves.
+
+`.github/workflows/credentials-check.yml` runs `scripts/check-store-credentials.mjs`
+every morning: it exchanges the Chrome refresh token and signs an AMO JWT, and
+opens a GitHub issue the day either stops working — so a dead credential is
+found days before a release needs it, instead of half-way through one. The issue
+closes itself once the credentials work again.
 
 ## Shipping an update
 
