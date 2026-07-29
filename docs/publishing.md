@@ -142,6 +142,35 @@ The tag push triggers `release.yml`, which:
 > `npm version` writes the version into `package.json`; `scripts/build.mjs`
 > copies it into `dist/manifest.json` at build time, so the two never drift.
 
+## When the release is green but the store is not
+
+Two Chrome states end a release run **successfully with nothing published** — a
+tag, a GitHub release and an AMO submission all exist, so it all looks shipped:
+
+| What the store says              | What it means                                                               |
+| -------------------------------- | --------------------------------------------------------------------------- |
+| `400 Publish condition not met`  | The zip is uploaded, but the **Privacy practices** tab has to be completed. |
+| `ITEM_NOT_UPDATABLE` / in review | Nothing was uploaded — a previous submission is still being reviewed.       |
+
+Both open (and later auto-close) the issue **"Chrome Web Store: a released
+version is not published"**, so the unshipped version can't quietly rot in a run
+log. To clear the first one:
+
+1. [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → the item
+   → **Privacy practices**.
+2. Fill in the single purpose and a justification per permission — the wording
+   lives in [First manual upload](#2-first-manual-upload-creates-the-item--its-id)
+   above. **Every newly added permission needs its own**, which is why an
+   otherwise routine release suddenly stops publishing.
+3. **Save draft** → **Submit for review** there, or re-run **Actions → Release →
+   Run workflow** with `tag` set to the affected tag (that path re-uploads
+   harmlessly and retries the publish).
+
+There is no API for any of this: the Chrome Web Store Publish API exposes only
+`upload`, `publish`, `fetchStatus`, `cancelSubmission` and
+`setPublishedDeployPercentage` — the privacy declarations are dashboard-only, on
+purpose, because they are legal statements by the publisher.
+
 ## Local testing before you publish
 
 1. `npm run build`

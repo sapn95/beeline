@@ -35,6 +35,7 @@ concurrency:
 
 permissions:
   contents: write
+  issues: write # a blocked store publish opens/closes a tracking issue
 
 jobs:
   release:
@@ -231,6 +232,7 @@ jobs:
           fi
 
       - name: Upload & publish to the Chrome Web Store
+        id: cwspublish
         if: steps.cws.outputs.ready == 'true'
         env:
           TAG: ${{ steps.bump.outputs.tag || steps.plan.outputs.tag }}
@@ -258,7 +260,10 @@ jobs:
               echo "::notice::Version already uploaded — continuing to publish it."
             elif grep -qiE 'ITEM_NOT_UPDATABLE|pending review' <<<"$out"; then
               # The store refuses uploads while a prior submission is in review.
-              # Soft skip: the GitHub release still succeeded.
+              # Soft skip: the GitHub release still succeeded. The next step turns
+              # this into a tracking issue — a warning annotation is read once, on
+              # a run nobody revisits, and the version then sits unshipped.
+              echo "blocked=in_review" >> "$GITHUB_OUTPUT"
               echo "::warning::Nothing uploaded to the Chrome Web Store — a previous submission is still in review. Once it clears, re-run this workflow with the 'tag' input set to $TAG."
               exit 0
             else
@@ -275,12 +280,83 @@ jobs:
             # Privacy-practices tab (e.g. after adding a permission). Soft-skip so
             # the run stays green — finish + publish in the dashboard.
             if grep -qiE 'Publish condition not met|privacy' <<<"$pub"; then
+              echo "blocked=privacy" >> "$GITHUB_OUTPUT"
               echo "::warning::Uploaded OK, but auto-publish is blocked until the Privacy practices tab is completed (new permissions need a justification). Finish it in the dashboard, then click Publish there or re-run this workflow."
               exit 0
             fi
             exit 1
           fi
           echo "$pub"
+
+      # A green run that shipped nothing is the worst of both worlds: the tag,
+      # the GitHub release and the AMO submission all exist, so everything LOOKS
+      # released while the Chrome version sits in the dashboard unpublished. The
+      # warning above lives on a run page nobody reopens — so raise an issue,
+      # the same way the daily credentials check does, and close it again as
+      # soon as a later run publishes.
+      - name: Track an unpublished Chrome release
+        if: ${{ !cancelled() && steps.cws.outputs.ready == 'true' && steps.cwspublish.outcome == 'success' }}
+        # Bookkeeping must never decide how the release looks: a hiccup in the
+        # issues API would otherwise red a run whose stores are all fine.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BLOCKED: ${{ steps.cwspublish.outputs.blocked }}
+          TAG: ${{ steps.bump.outputs.tag || steps.plan.outputs.tag }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DOCS_URL: ${{ github.server_url }}/${{ github.repository }}/blob/HEAD/docs/publishing.md
+          TITLE: 'Chrome Web Store: a released version is not published'
+        run: |
+          set -euo pipefail
+          # One issue at a time, matched on the exact title like
+          # credentials-check.yml does — but listed rather than searched: this
+          # title contains a colon, which GitHub's search would read as a
+          # qualifier, and a search that finds nothing would file a duplicate
+          # issue on every blocked release.
+          existing="$(gh issue list --repo "$REPO" --state open --limit 100 \
+            --json number,title \
+            --jq "[.[] | select(.title == \"$TITLE\")] | .[0].number // empty")"
+
+          if [ -z "$BLOCKED" ]; then
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --repo "$REPO" \
+                --comment "\`$TAG\` published to the Chrome Web Store — closing automatically."
+            fi
+            exit 0
+          fi
+
+          if [ "$BLOCKED" = 'privacy' ]; then
+            why='**Uploaded, but not published.** The store gates auto-publish on the *Privacy practices* tab, and a newly added permission needs its own justification there before it will accept a publish.'
+            fix="$(
+              printf '%s\n' \
+                '1. Open the [Developer Dashboard](https://chrome.google.com/webstore/devconsole) and pick the item.' \
+                "2. **Privacy practices** tab: single purpose + a justification for every permission. The ready-made wording is in [docs/publishing.md]($DOCS_URL)." \
+                "3. **Save draft**, then either hit **Submit for review** there, or re-run **Actions -> Release -> Run workflow** with the \`tag\` input set to \`$TAG\`."
+            )"
+          else
+            why='**Nothing was uploaded.** The store refuses a new upload while a previous submission is still in review.'
+            fix="$(
+              printf '%s\n' \
+                '1. Wait for the pending submission to clear (the dashboard shows its state).' \
+                "2. Re-run **Actions -> Release -> Run workflow** with the \`tag\` input set to \`$TAG\`."
+            )"
+          fi
+
+          body="$(
+            printf '%s\n' \
+              "Tag: \`$TAG\` — [release run]($RUN_URL)" '' \
+              "$why" '' \
+              '### What to do' '' "$fix" '' \
+              'The GitHub release and the Firefox submission are unaffected — this is only the Chrome side.' '' \
+              'This issue closes itself as soon as a release run publishes to the Chrome Web Store.'
+          )"
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body "$body"
+          else
+            gh issue create --repo "$REPO" --title "$TITLE" --body "$body"
+          fi
 
       - name: Detect Firefox AMO secrets
         id: amo
