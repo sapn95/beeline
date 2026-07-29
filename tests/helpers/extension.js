@@ -58,10 +58,20 @@ export function makeEvent() {
  * by default — the same contract the browser gives it — so functions that are
  * injected into the My Apps page get exercised for real.
  */
-export function makeChrome({ local = {}, sync = {}, version = '9.9.9', granted = true } = {}) {
+export function makeChrome({
+  local = {},
+  sync = {},
+  version = '9.9.9',
+  granted = true,
+  bookmarks = null,
+} = {}) {
   const localArea = makeArea(local);
   const syncArea = makeArea(sync);
   return {
+    // Optional permission: with `bookmarks` left null the API is absent
+    // entirely — exactly what a browser does when the permission is not
+    // granted (or was revoked in the extension settings).
+    ...(bookmarks ? { bookmarks: { getTree: vi.fn(async () => bookmarks) } } : {}),
     runtime: {
       onInstalled: makeEvent(),
       onStartup: makeEvent(),
@@ -97,6 +107,7 @@ export function makeChrome({ local = {}, sync = {}, version = '9.9.9', granted =
     permissions: {
       request: vi.fn(async () => granted),
       contains: vi.fn(async () => granted),
+      remove: vi.fn(async () => true),
     },
     alarms: {
       get: vi.fn(async () => undefined),

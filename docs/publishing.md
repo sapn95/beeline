@@ -30,8 +30,21 @@ npm run package          # produces myapps-launcher-v0.1.0.zip
   in Chrome sync and does **not** transmit it anywhere. It requests the
   `myapplications.microsoft.com` host permission only to import the user's own
   app tiles, on demand.
+- **Permission justifications** (the dashboard asks for one per permission —
+  including optional ones):
+  - `bookmarks` — "Optional, and off by default. Requested only when the user
+    switches on 'Also search this browser's bookmarks' in the options page, so
+    their bookmarks can be listed alongside their apps in the launcher popup.
+    Bookmarks are read live while the popup is open, are never stored by the
+    extension, and are never transmitted anywhere. Unticking the setting calls
+    `chrome.permissions.remove` and gives the permission back."
 - Submit for review and note the **Item ID** (32 lowercase letters) — that's
   `CHROME_EXTENSION_ID`.
+
+> NOTE: adding an **optional** permission does not disable the extension for
+> existing users the way a new required permission would — nothing is granted
+> until someone ticks the box. The store review may still take longer on the
+> release that introduces it.
 
 ### 3. Create API credentials for automated updates
 

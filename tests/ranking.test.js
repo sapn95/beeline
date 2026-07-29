@@ -49,4 +49,18 @@ describe('scoreApp', () => {
   it('returns null when neither name nor host match', () => {
     expect(scoreApp(apps[0], 'zzzzz', 0, {})).toBeNull();
   });
+
+  it('ranks a bookmark below an app of identical relevance', () => {
+    const app = { id: 'x', name: 'Grafana', url: 'https://g.example.com/' };
+    const bookmark = { ...app, id: 'bm:x', source: 'bookmark' };
+    expect(scoreApp(bookmark, 'graf', 0, {}).score).toBeLessThan(
+      scoreApp(app, 'graf', 0, {}).score,
+    );
+    // …but a handful of launches (6 × 1.5 > the 8-point handicap) climbs back
+    // past an app you never open.
+    const stats = { 'bm:x': { count: 6, lastLaunched: 0 } };
+    expect(scoreApp(bookmark, 'graf', 0, stats).score).toBeGreaterThan(
+      scoreApp(app, 'graf', 0, {}).score,
+    );
+  });
 });

@@ -196,6 +196,85 @@ describe('initial render', () => {
   });
 });
 
+describe('the bookmarks setting', () => {
+  const box = () => $('include-bookmarks');
+  const toggle = async (checked) => {
+    box().checked = checked;
+    box().dispatchEvent(new Event('change'));
+    await flush();
+  };
+
+  it('is off by default and asks for the permission when switched on', async () => {
+    await mount();
+    expect(box().checked).toBe(false);
+    await toggle(true);
+    expect(globalThis.chrome.permissions.request).toHaveBeenCalledWith({
+      permissions: ['bookmarks'],
+    });
+    expect(globalThis.chrome.storage.sync.store.settings.includeBookmarks).toBe(true);
+  });
+
+  it('unticks itself and saves nothing when the permission is denied', async () => {
+    await mount({ chromeOptions: { granted: false } });
+    await toggle(true);
+    expect(box().checked).toBe(false);
+    expect(globalThis.chrome.storage.sync.set).not.toHaveBeenCalled();
+    expect(status()).toMatch(/denied/);
+  });
+
+  it('hands the permission back when switched off', async () => {
+    await mount({ settings: { includeBookmarks: true } });
+    expect(box().checked).toBe(true);
+    await toggle(false);
+    expect(globalThis.chrome.permissions.remove).toHaveBeenCalledWith({
+      permissions: ['bookmarks'],
+    });
+    expect(globalThis.chrome.storage.sync.store.settings.includeBookmarks).toBe(false);
+  });
+
+  it('locks the box while the permission bubble is open', async () => {
+    await mount();
+    let grant;
+    globalThis.chrome.permissions.request = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          grant = resolve;
+        }),
+    );
+    box().checked = true;
+    box().dispatchEvent(new Event('change'));
+    await flush();
+    // The options page stays interactive behind the prompt — a second click
+    // must not be able to revoke what is still being asked for.
+    expect(box().disabled).toBe(true);
+    grant(true);
+    await flush();
+    expect(box().disabled).toBe(false);
+    expect(globalThis.chrome.storage.sync.store.settings.includeBookmarks).toBe(true);
+  });
+
+  it('shows it as off when the permission was revoked in the browser', async () => {
+    await mount({ settings: { includeBookmarks: true }, chromeOptions: { granted: false } });
+    expect(box().checked).toBe(false);
+  });
+
+  it('does not save (and puts the box back) before the settings have loaded', async () => {
+    globalThis.chrome = makeChrome({ local: { apps: APPS } });
+    globalThis.chrome.storage.sync.get = vi.fn(async () => {
+      throw new Error('sync unavailable');
+    });
+    loadPage('options');
+    vi.resetModules();
+    await import('../src/options/options.js');
+    await flush();
+
+    await toggle(true);
+    expect(box().checked).toBe(false);
+    expect(globalThis.chrome.permissions.request).not.toHaveBeenCalled();
+    expect(status()).toMatch(/not loaded yet/);
+  });
+});
+
 describe('adding and removing apps', () => {
   async function submitAdd(name, url) {
     $('name').value = name;
