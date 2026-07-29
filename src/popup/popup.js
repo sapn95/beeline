@@ -1,6 +1,7 @@
 import { getApps, getStats, getSettings, recordLaunch } from '../lib/storage.js';
 import { rankApps, hostOf } from '../lib/ranking.js';
 import { withAwsRegion } from '../lib/apps.js';
+import { loadBookmarkItems } from '../lib/bookmarks.js';
 
 const searchEl = document.getElementById('search');
 const resultsEl = document.getElementById('results');
@@ -12,12 +13,14 @@ let ctxApp = null; // the app the right-click menu is acting on
 let toastTimer = null;
 
 let apps = [];
+let bookmarks = []; // read live from the browser, never stored — see lib/bookmarks.js
 let stats = {};
 let settings = {
   openInNewTab: true,
   closeAfterLaunch: true,
   fallbackSearch: 'myapps',
   awsRegion: '',
+  includeBookmarks: false,
 };
 let current = [];
 let selected = 0;
@@ -39,6 +42,38 @@ async function init() {
   emptyEl.hidden = apps.length > 0;
   render();
   searchEl.focus();
+  await loadBookmarks();
+}
+
+// Bookmarks are optional and read live. Loading them AFTER the first paint
+// keeps the popup instant — they only matter once you start typing.
+async function loadBookmarks() {
+  if (!settings.includeBookmarks) return;
+  bookmarks = await loadBookmarkItems(apps).catch(() => []);
+  if (bookmarks.length === 0) return;
+  searchEl.placeholder = 'Search apps and bookmarks…';
+  searchEl.setAttribute('aria-label', 'Search apps and bookmarks');
+  // The "No apps yet" panel deliberately stays: bookmarks are a search source,
+  // not an app list, so with an empty list there is still nothing to launch
+  // until you type — and hiding it would leave a blank popup instead of the
+  // "add or import apps" way out.
+  //
+  // Re-select whatever the user had picked: this is a keyboard launcher, so by
+  // the time a big bookmark tree comes back they may already have typed and
+  // arrowed down, and silently snapping back to row 1 would open the wrong
+  // thing on the next Enter.
+  const picked = current[selected];
+  render();
+  const i = picked ? current.findIndex((r) => isSameResult(r, picked)) : -1;
+  if (i > 0) {
+    selected = i;
+    updateSelection();
+  }
+}
+
+/** Two rendered rows are the same row when they launch the same thing. */
+function isSameResult(a, b) {
+  return a.fallback ? a.fallback === b.fallback && a.query === b.query : a.app?.id === b.app?.id;
 }
 
 function wireEvents() {
@@ -72,9 +107,12 @@ function wireEvents() {
 function render() {
   closeCtxMenu(); // the rows are about to be replaced under it
   const q = searchEl.value.trim();
-  current = rankApps(apps, searchEl.value, Date.now(), stats);
-  // When you have apps but none match, offer a fallback search action.
-  if (current.length === 0 && q && apps.length > 0) {
+  // Bookmarks join the pool only once you type: they are a search source, not a
+  // list. Showing hundreds of them on open would bury the apps.
+  const pool = q && bookmarks.length > 0 ? apps.concat(bookmarks) : apps;
+  current = rankApps(pool, searchEl.value, Date.now(), stats);
+  // When you have something to search but none of it matches, offer a fallback.
+  if (current.length === 0 && q && pool.length > 0) {
     current = buildFallbacks(q);
   }
   selected = 0;
@@ -117,10 +155,19 @@ function renderItem(r, i) {
   name.append(...highlight(r.app.name, r.field === 'name' ? r.positions : []));
   const host = document.createElement('span');
   host.className = 'host';
-  host.textContent = hostOf(r.app.url) || r.app.url;
+  const where = hostOf(r.app.url) || r.app.url;
+  // A bookmark says where it lives, so two similarly-named ones stay tellable
+  // apart ("Work › Tickets · jira.example.com").
+  host.textContent = r.app.folder ? `${r.app.folder} · ${where}` : where;
   meta.append(name, host);
 
   li.append(icon, meta);
+  if (r.app.source === 'bookmark') {
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = 'Bookmark';
+    li.append(badge);
+  }
   li.addEventListener('click', () => launch(i));
   li.addEventListener('contextmenu', (e) => openCtxMenu(e, r.app, i)); // right-click → copy menu
   li.addEventListener('mousemove', () => {
@@ -243,7 +290,12 @@ async function launch(i, background = false) {
   // Usage stats are best-effort: a failed write (quota, transient error) must
   // never stop the app from opening — launching IS the job.
   await recordLaunch(r.app.id, Date.now()).catch(() => {});
-  const target = withAwsRegion(r.app.url, r.app.name, settings.awsRegion);
+  const target = withAwsRegion(r.app.url, r.app.name, settings.awsRegion, {
+    // The SAML RelayState rewrite only makes sense for an SSO launch URL. A
+    // bookmark is just a URL the user saved — leave it alone unless it IS the
+    // AWS console, which takes a plain ?region=.
+    samlRelayState: r.app.source !== 'bookmark',
+  });
   if (background) {
     chrome.tabs.create({ url: target, active: false });
     return; // keep the popup open so you can launch several in a row

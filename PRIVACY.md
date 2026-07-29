@@ -28,6 +28,13 @@ Beeline stores, only on your device:
    "close after launching."
 3. **Local usage counts** — how often and how recently you launch each app, used
    only to rank your results so your most-used apps appear first.
+4. **Nothing from your bookmarks.** If you switch on the optional _"Also search
+   this browser's bookmarks"_ setting, Beeline reads your bookmarks from the
+   browser **while the launcher popup is open**, purely to show matching ones in
+   the result list. They are **not stored** by Beeline, not copied into your app
+   list, and not sent anywhere. Switching the setting off (or revoking the
+   permission in your browser's extension settings) stops the reading
+   immediately.
 
 Beeline does **not** collect personally identifiable information, health data,
 financial or payment data, authentication data, personal communications,
@@ -58,6 +65,10 @@ it.
 - **Host access to `https://myapplications.microsoft.com/*`** — an _optional_
   permission, requested the first time you import, and used solely to read your
   own app tiles from that page (on import and on auto-sync).
+- **bookmarks** — an _optional_ permission, requested only when you switch on
+  "Also search this browser's bookmarks", and used solely to list matching
+  bookmarks in the launcher popup. Switching the setting off gives the
+  permission back. Nothing from your bookmarks is stored or transmitted.
 
 ## Data sharing
 

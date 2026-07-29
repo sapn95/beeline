@@ -13,6 +13,10 @@ describe('manifest', () => {
     // No broad, always-on host access — My Apps access is requested on demand.
     expect(manifest.host_permissions).toBeUndefined();
     expect(manifest.optional_host_permissions).toContain('https://myapplications.microsoft.com/*');
+    // Bookmarks are opt-in: asked for only when the setting is switched on, so
+    // installing Beeline never grants read access to them.
+    expect(manifest.optional_permissions).toEqual(['bookmarks']);
+    expect(manifest.permissions).not.toContain('bookmarks');
   });
 
   it('wires up the popup, options page and icons', () => {

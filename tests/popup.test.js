@@ -15,6 +15,7 @@ import {
   press,
   click,
 } from './helpers/extension.js';
+import { bookmarkKey } from '../src/lib/bookmarks.js';
 
 const APPS = [
   { id: 'a1', name: 'Jira', url: 'https://jira.example.com/', source: 'myapps' },
@@ -387,6 +388,166 @@ describe('copy menu', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('bookmarks', () => {
+  const TREE = [
+    {
+      title: '',
+      children: [
+        {
+          title: 'Bookmarks bar',
+          children: [
+            { title: 'Jira handbook', url: 'https://handbook.example.com/jira' },
+            { title: 'Jira', url: 'https://jira.example.com/' }, // same URL as the Jira app
+            { title: 'AWS pricing', url: 'https://aws.amazon.com/pricing/' },
+          ],
+        },
+      ],
+    },
+  ];
+
+  async function type(query, overrides = {}) {
+    await mount({
+      settings: { includeBookmarks: true, ...overrides.settings },
+      chrome: { bookmarks: TREE },
+    });
+    const search = document.getElementById('search');
+    search.value = query;
+    search.dispatchEvent(new Event('input'));
+    return search;
+  }
+
+  it('is off unless the setting is on — and reads nothing at all', async () => {
+    await mount({ chrome: { bookmarks: TREE } });
+    const search = document.getElementById('search');
+    search.value = 'handbook';
+    search.dispatchEvent(new Event('input'));
+    // No bookmark row — just the usual "nothing matched" fallback.
+    expect(names()).toEqual(['Search My Apps for “handbook”']);
+    expect(search.placeholder).toBe('Search apps…');
+    // The permission may well be granted from an earlier session; the setting
+    // alone decides whether Beeline touches the bookmarks at all.
+    expect(chrome.bookmarks.getTree).not.toHaveBeenCalled();
+  });
+
+  it('never writes a bookmark into the stored app list', async () => {
+    await type('jira');
+    press(document.getElementById('search'), 'ArrowDown');
+    press(document.getElementById('search'), 'Enter'); // launch the bookmark row
+    await flush();
+    // The whole promise of this feature: bookmarks are read, never stored.
+    expect(chrome.storage.local.store.apps).toEqual(APPS);
+    expect(JSON.stringify(chrome.storage.local.store)).not.toContain('handbook.example.com');
+  });
+
+  it('shows bookmarks only once you type, never in the resting list', async () => {
+    await mount({ settings: { includeBookmarks: true }, chrome: { bookmarks: TREE } });
+    expect(names()).toEqual(['Jira', 'AWS Console', 'Confluence']); // apps only
+    expect(document.getElementById('search').placeholder).toBe('Search apps and bookmarks…');
+    const search = document.getElementById('search');
+    search.value = 'handbook';
+    search.dispatchEvent(new Event('input'));
+    expect(names()).toEqual(['Jira handbook']);
+  });
+
+  it('ranks the app above the bookmark at equal relevance, and labels the row', async () => {
+    await type('jira');
+    // The 'Jira' bookmark duplicates the Jira app's URL and is dropped entirely.
+    expect(names()).toEqual(['Jira', 'Jira handbook']);
+    expect(rows()[0].querySelector('.badge')).toBeNull();
+    expect(rows()[1].querySelector('.badge').textContent).toBe('Bookmark');
+    expect(rows()[1].querySelector('.host').textContent).toBe(
+      'Bookmarks bar · handbook.example.com',
+    );
+  });
+
+  it('launches a bookmark and remembers it', async () => {
+    await type('handbook');
+    press(document.getElementById('search'), 'Enter');
+    await flush();
+    expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'https://handbook.example.com/jira' });
+    expect(Object.keys(chrome.storage.local.store.stats)).toContain(
+      `bm:${bookmarkKey('https://handbook.example.com/jira')}`,
+    );
+  });
+
+  it('never bolts a SAML RelayState onto a bookmark, but does set the console region', async () => {
+    await type('aws pricing', { settings: { awsRegion: 'eu-central-2' } });
+    press(document.getElementById('search'), 'Enter');
+    await flush();
+    // aws.amazon.com IS the console domain → plain ?region=; no RelayState.
+    expect(chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'https://aws.amazon.com/pricing/?region=eu-central-2',
+    });
+  });
+
+  it('searches bookmarks (and still offers the fallback) with no apps at all', async () => {
+    await mount({
+      settings: { includeBookmarks: true, fallbackSearch: 'web' },
+      chrome: { bookmarks: TREE, local: { apps: [] } },
+    });
+    // The "No apps yet" way out stays — bookmarks are a search source, not apps.
+    expect(document.getElementById('empty').hidden).toBe(false);
+    const search = document.getElementById('search');
+    search.value = 'handbook';
+    search.dispatchEvent(new Event('input'));
+    expect(names()).toEqual(['Jira handbook']);
+    search.value = 'zzzz';
+    search.dispatchEvent(new Event('input'));
+    expect(names()).toEqual(['Search the web for “zzzz”']);
+  });
+
+  it('keeps the row you already picked when a slow bookmark read lands', async () => {
+    let release;
+    const booting = mount({
+      settings: { includeBookmarks: true },
+      mutate: (c) => {
+        c.bookmarks = {
+          getTree: vi.fn(
+            () =>
+              new Promise((resolve) => {
+                release = resolve;
+              }),
+          ),
+        };
+      },
+    });
+    // Wait for the first paint only — the bookmark read is still in flight,
+    // which is exactly the window this test is about.
+    for (let i = 0; i < 50 && rows().length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    const search = document.getElementById('search');
+    search.value = 'a';
+    search.dispatchEvent(new Event('input'));
+    press(search, 'ArrowDown');
+    const picked = names()[selectedIndex()];
+    expect(selectedIndex()).toBe(1);
+
+    release(TREE);
+    await booting;
+    await flush();
+    // Bookmarks joined and reshuffled the list — the selection followed the row,
+    // so the next Enter still opens what was highlighted.
+    expect(names().length).toBeGreaterThan(3);
+    expect(names()[selectedIndex()]).toBe(picked);
+  });
+
+  it('shows the apps anyway when the bookmark read fails', async () => {
+    await mount({
+      settings: { includeBookmarks: true },
+      mutate: (c) => {
+        c.bookmarks = {
+          getTree: vi.fn(() => {
+            throw new Error('permission revoked mid-flight');
+          }),
+        };
+      },
+    });
+    expect(names()).toEqual(['Jira', 'AWS Console', 'Confluence']);
+    expect(document.getElementById('search').placeholder).toBe('Search apps…');
   });
 });
 

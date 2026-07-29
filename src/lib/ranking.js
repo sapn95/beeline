@@ -6,6 +6,9 @@ import { fuzzyMatch } from './fuzzy.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RECENCY_WINDOW_DAYS = 20; // recency boost decays to zero over this span
 const URL_MATCH_WEIGHT = 0.5; // a URL/host match counts for less than a name match
+// Beeline is an app launcher first: at equal relevance an app always outranks a
+// bookmark. Small enough that a bookmark you actually launch still climbs.
+const BOOKMARK_PENALTY = 8;
 
 export function hostOf(url) {
   try {
@@ -28,10 +31,11 @@ function usageBoost(stat, now) {
 /**
  * Score a single app for a query. Returns null when neither the name nor the
  * host match. When the query is empty, every app scores on usage only.
+ * Items tagged `source: 'bookmark'` carry a small constant handicap.
  */
 export function scoreApp(app, query, now = 0, stats = {}) {
   const stat = stats[app.id] || { count: 0, lastLaunched: 0 };
-  const boost = usageBoost(stat, now);
+  const boost = usageBoost(stat, now) - (app.source === 'bookmark' ? BOOKMARK_PENALTY : 0);
 
   const nameMatch = fuzzyMatch(query, app.name);
   if (nameMatch.matched) {

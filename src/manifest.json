@@ -18,6 +18,7 @@
   },
   "options_page": "options/options.html",
   "permissions": ["storage", "scripting", "alarms", "search"],
+  "optional_permissions": ["bookmarks"],
   "optional_host_permissions": ["https://myapplications.microsoft.com/*"],
   "commands": {
     "_execute_action": {
