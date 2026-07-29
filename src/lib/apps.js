@@ -35,16 +35,22 @@ export function normalizeUrl(url) {
   }
 }
 
-/** Stable, dependency-free id derived from the canonical URL (FNV-1a 32-bit).
- * Same URL always yields the same id, so launch stats survive re-imports. */
-export function appId(url) {
-  const s = canonicalUrl(url);
+/** FNV-1a 32-bit over a string — the shared basis for every stable id here.
+ * What gets hashed is the caller's choice: an app hashes its canonical URL,
+ * a bookmark its full one (see lib/bookmarks.js). */
+export function fnv1a(s) {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.codePointAt(i);
     h = Math.imul(h, 0x01000193);
   }
   return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+/** Stable, dependency-free id derived from the canonical URL.
+ * Same URL always yields the same id, so launch stats survive re-imports. */
+export function appId(url) {
+  return fnv1a(canonicalUrl(url));
 }
 
 /** Coerce raw input (manual entry or scraped tile) into a clean app record, or
@@ -137,8 +143,11 @@ export function reconcileApps(existing, scraped) {
  * - an IdP-initiated SSO launcher URL gets a SAML `RelayState` pointing at the
  *   regional console (whether Entra honours this is tenant-dependent — test it).
  * No-ops when region is empty, the name has no "aws", a RelayState already
- * exists, or the URL can't be parsed. Pure + unit-tested. */
-export function withAwsRegion(url, name, region) {
+ * exists, or the URL can't be parsed. Pure + unit-tested.
+ * `samlRelayState: false` keeps only the console `region` rewrite — for targets
+ * that are not an SSO launch URL (a bookmark), where a stray RelayState
+ * parameter would just be noise on someone else's URL. */
+export function withAwsRegion(url, name, region, { samlRelayState = true } = {}) {
   if (!region || !/aws/i.test(String(name ?? ''))) return url;
   try {
     const u = new URL(url);
@@ -146,6 +155,7 @@ export function withAwsRegion(url, name, region) {
       if (!u.searchParams.has('region')) u.searchParams.set('region', region);
       return u.toString();
     }
+    if (!samlRelayState) return url;
     if (!u.searchParams.has('RelayState')) {
       u.searchParams.set(
         'RelayState',

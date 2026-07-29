@@ -5,6 +5,8 @@ import { accumulateApps } from '../lib/collector.js';
 
 const MYAPPS_ORIGIN = 'https://myapplications.microsoft.com/';
 const MYAPPS_PATTERN = 'https://myapplications.microsoft.com/*';
+// Optional permission behind the "also search my bookmarks" setting.
+const BOOKMARKS_PERMISSION = { permissions: ['bookmarks'] };
 // Set (to a timestamp) while a manual import runs so the background auto-sync
 // stands down and doesn't scroll the same grid — see background.js IMPORT_FLAG.
 const IMPORT_FLAG = 'beelineImporting';
@@ -65,6 +67,8 @@ function wireControls() {
   });
   document.getElementById('open-in-new-tab').addEventListener('change', onSettingChange);
   document.getElementById('close-after-launch').addEventListener('change', onSettingChange);
+  // Own handler: this one has a permission prompt to run inside the click.
+  document.getElementById('include-bookmarks').addEventListener('change', onBookmarksToggle);
   document.getElementById('fallback-search').addEventListener('change', onSettingChange);
   document.getElementById('aws-region').addEventListener('change', onSettingChange);
   document.getElementById('theme').addEventListener('change', onSettingChange);
@@ -775,6 +779,43 @@ function applyTheme(theme) {
   }
 }
 
+function hasBookmarksPermission() {
+  return chrome.permissions.contains(BOOKMARKS_PERMISSION).catch(() => false);
+}
+
+// The permission prompt has to run inside the user gesture that ticked the box,
+// so it goes FIRST — any await before it ends the gesture and Chrome refuses.
+// The setting is only written once the permission state actually matches it.
+async function onBookmarksToggle(e) {
+  const box = e.target;
+  if (!settingsLoaded) {
+    box.checked = !box.checked; // put the box back: nothing was saved
+    setStatus('Settings are not loaded yet — reload the page before changing them.');
+    return;
+  }
+  // Disable for the duration: the page stays interactive while the permission
+  // bubble is open, so a second click could ask and revoke at the same time and
+  // leave the granted permission out of step with the saved setting.
+  box.disabled = true;
+  try {
+    if (box.checked) {
+      const granted = await chrome.permissions.request(BOOKMARKS_PERMISSION).catch(() => false);
+      if (!granted) {
+        box.checked = false;
+        setStatus('Bookmark access denied — the launcher keeps searching your apps only.');
+        return;
+      }
+    } else {
+      // Hand the permission back: keeping read access to bookmarks Beeline no
+      // longer looks at would be exactly the kind of leftover this repo avoids.
+      await chrome.permissions.remove(BOOKMARKS_PERMISSION).catch(() => {});
+    }
+    await onSettingChange();
+  } finally {
+    box.disabled = false;
+  }
+}
+
 async function loadSettings() {
   const settings = await getSettings();
   document.getElementById('open-in-new-tab').checked = settings.openInNewTab;
@@ -783,6 +824,13 @@ async function loadSettings() {
   document.getElementById('aws-region').value = settings.awsRegion;
   document.getElementById('theme').value = settings.theme;
   applyTheme(settings.theme);
+  // Last, because it needs a second async round-trip: show what is actually in
+  // effect. The permission can be revoked in the browser's own extension
+  // settings behind our back, which silently turns the feature off (the
+  // bookmarks API simply disappears). Changing any setting writes the
+  // corrected value back.
+  document.getElementById('include-bookmarks').checked =
+    Boolean(settings.includeBookmarks) && (await hasBookmarksPermission());
   settingsLoaded = true;
 }
 
@@ -801,6 +849,7 @@ async function onSettingChange() {
     fallbackSearch: document.getElementById('fallback-search').value,
     awsRegion: document.getElementById('aws-region').value.trim(),
     theme,
+    includeBookmarks: document.getElementById('include-bookmarks').checked,
   });
   applyTheme(theme); // reflect the new theme on this page immediately
   setStatus('Settings saved.');

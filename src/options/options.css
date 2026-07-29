@@ -127,6 +127,14 @@ input[type='checkbox'] {
   height: 16px;
 }
 
+/* Explanatory line under a checkbox, indented to line up with its label. */
+.note {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 2px 0 0 24px;
+  max-width: 62ch;
+}
+
 .select {
   display: flex;
   align-items: center;

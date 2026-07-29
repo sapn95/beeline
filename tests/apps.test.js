@@ -211,4 +211,18 @@ describe('withAwsRegion', () => {
     const url = `${launcher}&RelayState=https%3A%2F%2Fexisting`;
     expect(withAwsRegion(url, 'AWS', 'eu-central-1')).toBe(url);
   });
+
+  it('leaves a non-SSO target alone when the RelayState rewrite is off', () => {
+    // What a bookmark gets: a stray RelayState on someone else's URL is noise.
+    expect(
+      withAwsRegion('https://docs.aws.example/', 'AWS docs', 'eu-central-1', {
+        samlRelayState: false,
+      }),
+    ).toBe('https://docs.aws.example/');
+    // …but the console's own ?region= still applies.
+    const out = withAwsRegion('https://console.aws.amazon.com/home', 'AWS', 'eu-central-2', {
+      samlRelayState: false,
+    });
+    expect(new URL(out).searchParams.get('region')).toBe('eu-central-2');
+  });
 });

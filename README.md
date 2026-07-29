@@ -41,6 +41,11 @@ the app opens through your existing SSO. No backend, no telemetry, no waiting.
 - 🔄 **Stays in sync** — re-scrapes whenever you visit My Apps (and on a periodic
   background check), adding new apps and removing ones you no longer have; your
   manually-added apps are always kept.
+- 🔖 **Bookmarks too — if you want** — switch on _"Also search this browser's
+  bookmarks"_ in the settings and your bookmarks join the search results
+  (labelled, and ranked just below an app of the same relevance). Off by
+  default; the `bookmarks` permission is only requested when you switch it on,
+  and handed back when you switch it off.
 - 🔎 **Fallback search** — when nothing matches what you typed, hit Enter to
   search My Apps or your default web search engine (configurable in settings).
 - 🔒 **Private by design** — everything stays in your browser; no telemetry. Host

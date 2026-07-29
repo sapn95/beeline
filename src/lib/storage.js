@@ -17,6 +17,9 @@ export const DEFAULT_SETTINGS = {
   fallbackSearch: 'myapps', // 'myapps' | 'web' | 'both' | 'off'
   awsRegion: '', // when set, apps with "aws" in the name launch into this region
   theme: 'auto', // 'auto' (follow OS) | 'light' | 'dark'
+  // Off by default: it needs the optional `bookmarks` permission, which the
+  // options page asks for only when you tick the box.
+  includeBookmarks: false,
 };
 
 function syncArea() {
