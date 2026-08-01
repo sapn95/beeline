@@ -218,6 +218,7 @@ export function stubWindowScroll({ height = 0, viewport = 768 } = {}) {
 export function stubUnscrollableDocument({ height = 9000, viewport = 768 } = {}) {
   const saved = [
     [window, 'innerHeight'],
+    [window, 'scrollBy'],
     [document.documentElement, 'scrollHeight'],
   ].map(([target, prop]) => [target, prop, Object.getOwnPropertyDescriptor(target, prop)]);
 
