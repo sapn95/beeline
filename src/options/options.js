@@ -403,8 +403,20 @@ function scrollMyAppsStepInPage() {
   // how far the deepest scroller still has to go.
   const winBefore = window.scrollY;
   window.scrollBy(0, step);
-  let moved = window.scrollY !== winBefore;
-  let maxRemaining = document.documentElement.scrollHeight - (window.scrollY + window.innerHeight);
+  const winMoved = window.scrollY !== winBefore;
+  let moved = winMoved;
+  // The document-level distance only counts when the WINDOW is really what
+  // scrolls. An app shell (fixed-height <html>, grid inside its own scroller)
+  // can report a document far taller than the viewport that no scrollBy will
+  // ever move: a phantom gap that never falls to 0, so the bottom is never
+  // detected and EVERY import ends merge-only ("Run Import again to finish")
+  // even after it walked the whole grid. Ignore it — but only while a
+  // tile-bearing inner scroller exists to be the real one. With no inner
+  // scroller the window is all we have, and its claim must still be believed.
+  const windowScrolls = winMoved || window.scrollY > 0 || scrollers.size === 0;
+  let maxRemaining = windowScrolls
+    ? document.documentElement.scrollHeight - (window.scrollY + window.innerHeight)
+    : 0;
   for (const el of scrollers) {
     const before = el.scrollTop;
     el.scrollTop += step;
@@ -538,7 +550,11 @@ async function withMyAppsWindow(fn) {
 // until the grid bottoms out with nothing new. The loop logic lives in the pure,
 // unit-tested accumulateApps(); here we just wire it to the live tab.
 async function collectAllApps(tabId, onProgress) {
-  const { apps: collected, complete } = await accumulateApps({
+  const {
+    apps: collected,
+    complete,
+    reachedBottom,
+  } = await accumulateApps({
     scrapeRound: async (seenCount) => {
       onProgress(seenCount); // refresh the progress UI before the (slow) scrape
       const found = await scrapeTab(tabId);
@@ -556,7 +572,7 @@ async function collectAllApps(tabId, onProgress) {
     stableLimit: 5,
     deadline: Date.now() + 120000,
   });
-  return { apps: collected, complete };
+  return { apps: collected, complete, reachedBottom };
 }
 
 async function onImportMyApps() {
@@ -590,12 +606,15 @@ async function onImportMyApps() {
 
   let best;
   let complete;
+  let reachedBottom;
   try {
     // Run in a dedicated unfocused window so the virtualised grid renders without
     // pulling focus away from this page. See withMyAppsWindow().
-    ({ apps: best, complete } = await withMyAppsWindow((tabId) =>
-      collectAllApps(tabId, showImportProgress),
-    ));
+    ({
+      apps: best,
+      complete,
+      reachedBottom,
+    } = await withMyAppsWindow((tabId) => collectAllApps(tabId, showImportProgress)));
   } catch (e) {
     renderList(); // drop the progress placeholder — the list must stay visible
     setStatus(`Import failed: ${e?.message || e}. Open My Apps once to sign in, then try again.`);
@@ -648,8 +667,14 @@ async function onImportMyApps() {
       `Imported ${best.length} app(s) (+${delta})${who} — the background sync could not be paused, so nothing was removed.`,
     );
   } else {
+    // Name the reason: "never reported the end" is a scroll-signal problem (a
+    // container we cannot drive), "still growing" is a grid that kept producing
+    // new tiles right up to the cap — very different things to chase.
+    const why = reachedBottom
+      ? 'the list was still growing at the end'
+      : 'the page never reported the end of the list';
     setStatus(
-      `Imported ${best.length} app(s) (+${delta})${who} — didn't reach the end, so nothing was removed. Run Import again to finish.`,
+      `Imported ${best.length} app(s) (+${delta})${who} — ${why}, so nothing was removed. Run Import again to finish.`,
     );
   }
 }

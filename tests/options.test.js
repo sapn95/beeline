@@ -10,6 +10,8 @@ import {
   loadPage,
   stubDomExtras,
   stubWindowScroll,
+  stubUnscrollableDocument,
+  fakeScroller,
   rebuildInjected,
   flush,
   click,
@@ -691,7 +693,7 @@ describe('import from My Apps', () => {
     // Even a partial import tags what it found, so a later complete sync can
     // prune it — untagged records would linger forever.
     expect(stored().find((a) => a.name === 'App 3').source).toBe('myapps');
-    expect(status()).toMatch(/didn't reach the end, so nothing was removed/);
+    expect(status()).toMatch(/the page never reported the end of the list, so nothing was removed/);
   });
 
   it('shows a sign-in hint while the page is not readable yet', async () => {
@@ -807,7 +809,54 @@ describe('import from My Apps', () => {
     const names = stored().map((a) => a.name);
     expect(names).toContain('App 1');
     expect(names).toEqual(expect.arrayContaining(['Jira', 'Wiki', 'Retired'])); // nothing pruned
-    expect(status()).toMatch(/didn't reach the end, so nothing was removed/);
+    expect(status()).toMatch(/the page never reported the end of the list, so nothing was removed/);
+  });
+
+  it('finishes on an app shell whose document height can never be scrolled away', async () => {
+    // The regression that made EVERY import end merge-only ("Run Import again to
+    // finish"): the shell reports a document far taller than the viewport but
+    // swallows window scrolling, so the document-level distance never fell to 0 —
+    // even long after the grid's OWN scroller had bottomed out and the union had
+    // stopped growing. The tiles' scroller is the one that counts here.
+    await mount({ apps: [...APPS, app('Retired', 'https://retired.example.com/', 'myapps')] });
+    const restore = stubUnscrollableDocument({ height: 9000, viewport: 768 });
+    try {
+      const panel = fakeScroller(document.createElement('div'), {
+        scrollHeight: 1600,
+        clientHeight: 800,
+      });
+      document.body.append(panel);
+      addTile('App 1', '1', { parent: panel });
+
+      await click($('import-myapps'));
+      await tick(180000);
+      expect(status()).toMatch(/^Synced/); // a complete read, so it may reconcile
+      const names = stored().map((a) => a.name);
+      expect(names).toEqual(expect.arrayContaining(['App 1', 'Wiki']));
+      expect(names).not.toContain('Retired'); // gone from My Apps → pruned
+    } finally {
+      restore();
+    }
+  });
+
+  it('still believes the window when the tiles have no scroller of their own', async () => {
+    // Flip side of the fix: with no inner scroller the window IS the grid's
+    // scroller, so a document that claims room left must stay "unknown". Calling
+    // that the bottom would let the first virtualised slice prune the rest.
+    await mount({ apps: [...APPS, app('Retired', 'https://retired.example.com/', 'myapps')] });
+    const restore = stubUnscrollableDocument({ height: 9000, viewport: 768 });
+    try {
+      addTile('App 1', '1'); // straight onto <body>: no scrollable ancestor
+
+      await click($('import-myapps'));
+      await tick(180000);
+      expect(status()).toMatch(/never reported the end of the list, so nothing was removed/);
+      expect(stored().map((a) => a.name)).toEqual(
+        expect.arrayContaining(['Jira', 'Wiki', 'Retired', 'App 1']),
+      );
+    } finally {
+      restore();
+    }
   });
 
   it('keeps the list visible when saving the import fails', async () => {
