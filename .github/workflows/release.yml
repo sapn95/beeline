@@ -174,8 +174,11 @@ jobs:
           BUMP: ${{ steps.plan.outputs.bump }}
         run: |
           set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # Commit as the repo owner, not as the runner bot: a bot-authored
+          # release commit adds github-actions[bot] to the contributor list for
+          # a commit nobody wrote by hand.
+          git config user.name 'Sebastian Winterberger'
+          git config user.email 'sapn95@users.noreply.github.com'
           npm version "$BUMP" -m 'chore(release): %s'
           echo "tag=v$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
 
