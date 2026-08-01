@@ -208,6 +208,34 @@ export function stubWindowScroll({ height = 0, viewport = 768 } = {}) {
   });
 }
 
+/**
+ * The single-page-app shell shape: the document claims to be far taller than the
+ * viewport, but scrolling the window does nothing (the grid lives in its own
+ * scroller). Returns a restore function — unlike stubWindowScroll this geometry
+ * MUST be undone, or every later import in the file would see a document that
+ * can never reach its bottom.
+ */
+export function stubUnscrollableDocument({ height = 9000, viewport = 768 } = {}) {
+  const saved = [
+    [window, 'innerHeight'],
+    [document.documentElement, 'scrollHeight'],
+  ].map(([target, prop]) => [target, prop, Object.getOwnPropertyDescriptor(target, prop)]);
+
+  Object.defineProperty(window, 'innerHeight', { configurable: true, get: () => viewport });
+  Object.defineProperty(document.documentElement, 'scrollHeight', {
+    configurable: true,
+    get: () => height,
+  });
+  window.scrollBy = vi.fn(); // the shell swallows it: scrollY never moves
+
+  return () => {
+    for (const [target, prop, descriptor] of saved) {
+      if (descriptor) Object.defineProperty(target, prop, descriptor);
+      else delete target[prop];
+    }
+  };
+}
+
 /** jsdom implements neither of these; the UI calls both. */
 export function stubDomExtras() {
   stubLocalStorage();
