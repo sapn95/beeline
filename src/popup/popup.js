@@ -128,6 +128,47 @@ function buildFallbacks(query) {
   return items;
 }
 
+// My Apps launcher links all share one host, so their favicon is the same
+// Microsoft glyph for every app — an initial tells them apart, that would not.
+const SAME_FAVICON_HOSTS = new Set([
+  'launcher.myapps.microsoft.com',
+  'myapplications.microsoft.com',
+]);
+
+/**
+ * Bookmarks (chrome.bookmarks carries no icon) and hand-added apps have no logo
+ * to scrape, so borrow the one the browser has already cached for that page.
+ * The `favicon` permission serves it from Chrome's LOCAL store: no network
+ * request, nothing leaves the machine. Returns '' when there is nothing sensible
+ * to ask for — the caller then draws the initial.
+ */
+function faviconUrl(url) {
+  let host;
+  try {
+    host = new URL(url).host;
+  } catch {
+    return '';
+  }
+  if (SAME_FAVICON_HOSTS.has(host)) return '';
+  try {
+    const endpoint = new URL(chrome.runtime.getURL('/_favicon/'));
+    endpoint.searchParams.set('pageUrl', url);
+    endpoint.searchParams.set('size', '32');
+    return endpoint.toString();
+  } catch {
+    return ''; // no runtime API / no favicon permission (Firefox build)
+  }
+}
+
+/** Replace whatever is in the icon slot with the app's initial. */
+function letterTile(icon, name) {
+  icon.textContent = ''; // drops a failed <img> along with it
+  icon.classList.add('letter');
+  icon.textContent = String(name || '?')
+    .charAt(0)
+    .toUpperCase();
+}
+
 function renderItem(r, i) {
   if (r.fallback) return renderFallbackItem(r, i);
 
@@ -137,15 +178,18 @@ function renderItem(r, i) {
 
   const icon = document.createElement('span');
   icon.className = 'icon';
-  if (r.app.iconUrl) {
+  const src = r.app.iconUrl || faviconUrl(r.app.url);
+  if (src) {
     const img = document.createElement('img');
-    img.src = r.app.iconUrl;
+    img.src = src;
     img.alt = '';
     img.loading = 'lazy';
+    // No favicon cached (or a browser without the endpoint, e.g. Firefox): drop
+    // back to the initial rather than leaving a broken image behind.
+    img.addEventListener('error', () => letterTile(icon, r.app.name), { once: true });
     icon.appendChild(img);
   } else {
-    icon.classList.add('letter');
-    icon.textContent = r.app.name.charAt(0).toUpperCase();
+    letterTile(icon, r.app.name);
   }
 
   const meta = document.createElement('span');
