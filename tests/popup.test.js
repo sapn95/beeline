@@ -62,6 +62,67 @@ afterEach(() => {
   delete globalThis.chrome;
 });
 
+describe('chunked painting', () => {
+  // Enough apps to overrun the first slice. A real list is several hundred.
+  const MANY = Array.from({ length: 60 }, (_, i) => ({
+    id: `m${i}`,
+    name: `App ${String(i + 1).padStart(2, '0')}`,
+    url: `https://app${i + 1}.example.com/`,
+    source: 'manual',
+  }));
+
+  const tick = () =>
+    new Promise((resolve) =>
+      typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame(() => resolve())
+        : setTimeout(resolve, 0),
+    );
+
+  /** Let the streamed tail land: one chunk per frame, with a runaway guard. */
+  async function paintAll(expected) {
+    for (let i = 0; i < 30 && rows().length < expected; i++) await tick();
+    return rows().length;
+  }
+
+  it('paints a first slice right away and streams the rest in afterwards', async () => {
+    await mount({ chrome: { local: { apps: MANY } } });
+    // Building every row up front is what made the popup slow to open: with a
+    // few hundred apps that is a few hundred icons nobody is looking at.
+    expect(rows()).toHaveLength(20);
+    expect(names()[0]).toBe('App 01');
+    expect(await paintAll(60)).toBe(60);
+    expect(names()[59]).toBe('App 60');
+  });
+
+  it('lets the keyboard outrun the tail', async () => {
+    await mount({ chrome: { local: { apps: MANY } } });
+    const search = document.getElementById('search');
+    for (let i = 0; i < 25; i++) press(search, 'ArrowDown');
+    // Row 26 is well past the first slice, so it has to be pulled in on demand.
+    // Otherwise the arrows walk into rows that do not exist yet and Enter opens
+    // nothing — the ranking is complete, only the painting is behind.
+    expect(selectedIndex()).toBe(25);
+    expect(rows()[25].querySelector('.name').textContent).toBe('App 26');
+  });
+
+  it('wraps to the last row before the tail has landed', async () => {
+    await mount({ chrome: { local: { apps: MANY } } });
+    press(document.getElementById('search'), 'ArrowUp');
+    expect(selectedIndex()).toBe(59);
+    expect(rows()).toHaveLength(60);
+  });
+
+  it('starts the paint over on a new query, leaving no stale rows behind', async () => {
+    await mount({ chrome: { local: { apps: MANY } } });
+    await paintAll(60);
+    const search = document.getElementById('search');
+    search.value = 'App 07';
+    search.dispatchEvent(new Event('input'));
+    expect(names()).toEqual(['App 07']);
+    expect(selectedIndex()).toBe(0);
+  });
+});
+
 describe('rendering', () => {
   it('lists every stored app with its host, most-used first', async () => {
     await mount();
@@ -491,12 +552,13 @@ describe('bookmarks', () => {
     expect(names()).toEqual(['Jira handbook']);
   });
 
-  it('ranks the app above the bookmark at equal relevance, and labels the row', async () => {
+  it('ranks the app above the bookmark at equal relevance, and says where it lives', async () => {
     await type('jira');
     // The 'Jira' bookmark duplicates the Jira app's URL and is dropped entirely.
     expect(names()).toEqual(['Jira', 'Jira handbook']);
-    expect(rows()[0].querySelector('.badge')).toBeNull();
-    expect(rows()[1].querySelector('.badge').textContent).toBe('Bookmark');
+    // The folder in the subtitle is what marks a bookmark — no extra badge, it
+    // only repeated what the row already says.
+    expect(rows()[0].querySelector('.host').textContent).toBe('jira.example.com');
     expect(rows()[1].querySelector('.host').textContent).toBe(
       'Bookmarks bar · handbook.example.com',
     );

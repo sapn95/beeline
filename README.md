@@ -46,10 +46,10 @@ actually has bound.)
   the (virtualised) grid can only ever add — nothing is removed on a partial
   view of your portal.
 - 🔖 **Bookmarks too — if you want** — switch on _"Also search this browser's
-  bookmarks"_ in the settings and your bookmarks join the search results
-  (labelled, and ranked just below an app of the same relevance). Off by
-  default; the `bookmarks` permission is only requested when you switch it on,
-  and handed back when you switch it off.
+  bookmarks"_ in the settings and your bookmarks join the search results (each
+  showing the folder it lives in, and ranked just below an app of the same
+  relevance). Off by default; the `bookmarks` permission is only requested when
+  you switch it on, and handed back when you switch it off.
 - 🖼️ **Icons that are actually there** — an imported tile brings its logo with
   it; bookmarks, apps with no logo in your tenant, and apps you added by hand
   borrow the icon your browser has already cached locally, and fall back to the

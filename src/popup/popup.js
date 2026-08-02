@@ -24,9 +24,30 @@ let settings = {
 };
 let current = [];
 let selected = 0;
+let selectedEl = null; // the highlighted row, kept so selection never walks the whole list
+
+// Rows are painted in chunks: the first slice lands right away, the rest streams
+// in over the following frames. Building several hundred rows (each with an
+// icon) in one go is what made the popup feel slow to open and slow per
+// keystroke — the list below the fold can arrive late, nobody is looking at it.
+const FIRST_CHUNK = 20; // more than fills the popup viewport
+const TAIL_CHUNK = 50;
+let painted = 0; // how many of `current` are actually in the DOM
+let tailHandle = null;
+// Fall back to a timeout only if BOTH halves of the rAF pair are missing, so the
+// handle we keep is always cancellable by the matching canceller.
+const hasRaf =
+  typeof globalThis.requestAnimationFrame === 'function' &&
+  typeof globalThis.cancelAnimationFrame === 'function';
+const schedule = hasRaf ? (fn) => requestAnimationFrame(fn) : (fn) => setTimeout(fn, 0);
+const unschedule = hasRaf ? (h) => cancelAnimationFrame(h) : (h) => clearTimeout(h);
 
 async function init() {
   wireEvents();
+  // Focus before the storage read, not after: opening the popup and typing
+  // immediately is the whole point, and a keystroke that lands before the list
+  // is ready is then still in the box when the first render runs.
+  searchEl.focus();
   try {
     [apps, stats, settings] = await Promise.all([getApps(), getStats(), getSettings()]);
   } catch {
@@ -41,7 +62,6 @@ async function init() {
   }
   emptyEl.hidden = apps.length > 0;
   render();
-  searchEl.focus();
   await loadBookmarks();
 }
 
@@ -67,6 +87,7 @@ async function loadBookmarks() {
   const i = picked ? current.findIndex((r) => isSameResult(r, picked)) : -1;
   if (i > 0) {
     selected = i;
+    ensureRendered(selected);
     updateSelection();
   }
 }
@@ -116,8 +137,48 @@ function render() {
     current = buildFallbacks(q);
   }
   selected = 0;
-  resultsEl.replaceChildren(...current.map((r, i) => renderItem(r, i)));
+  repaint();
+}
+
+/** Drop every row and start the chunked paint over from the top. */
+function repaint() {
+  cancelTail();
+  resultsEl.replaceChildren();
+  selectedEl = null;
+  painted = 0;
+  paintMore(FIRST_CHUNK);
   updateSelection();
+  scheduleTail();
+}
+
+function paintMore(n) {
+  const end = Math.min(current.length, painted + n);
+  if (end === painted) return;
+  const frag = document.createDocumentFragment();
+  for (let i = painted; i < end; i++) frag.append(renderItem(current[i], i));
+  resultsEl.append(frag);
+  painted = end;
+}
+
+function scheduleTail() {
+  if (tailHandle !== null || painted >= current.length) return;
+  tailHandle = schedule(() => {
+    tailHandle = null;
+    paintMore(TAIL_CHUNK);
+    scheduleTail();
+  });
+}
+
+function cancelTail() {
+  if (tailHandle === null) return;
+  unschedule(tailHandle);
+  tailHandle = null;
+}
+
+/** The keyboard can outrun the tail — pull in the rows it skipped past. */
+function ensureRendered(i) {
+  if (i < painted) return;
+  paintMore(i - painted + 1);
 }
 
 function buildFallbacks(query) {
@@ -206,12 +267,6 @@ function renderItem(r, i) {
   meta.append(name, host);
 
   li.append(icon, meta);
-  if (r.app.source === 'bookmark') {
-    const badge = document.createElement('span');
-    badge.className = 'badge';
-    badge.textContent = 'Bookmark';
-    li.append(badge);
-  }
   li.addEventListener('click', () => launch(i));
   li.addEventListener('contextmenu', (e) => openCtxMenu(e, r.app, i)); // right-click → copy menu
   li.addEventListener('mousemove', () => {
@@ -312,16 +367,17 @@ function onKeyDown(e) {
 function move(delta) {
   if (current.length === 0) return;
   selected = (selected + delta + current.length) % current.length;
+  ensureRendered(selected);
   updateSelection();
 }
 
 function updateSelection() {
-  const items = resultsEl.children;
-  for (let i = 0; i < items.length; i++) {
-    items[i].classList.toggle('selected', i === selected);
-  }
-  const el = items[selected];
-  if (el) el.scrollIntoView({ block: 'nearest' });
+  const el = resultsEl.children[selected] || null;
+  if (selectedEl && selectedEl !== el) selectedEl.classList.remove('selected');
+  selectedEl = el;
+  if (!el) return;
+  el.classList.add('selected');
+  el.scrollIntoView({ block: 'nearest' });
 }
 
 async function launch(i, background = false) {

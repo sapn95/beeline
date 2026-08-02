@@ -131,20 +131,6 @@ body {
   text-overflow: ellipsis;
 }
 
-/* Marks a row that comes from the browser's bookmarks rather than your apps.
- * margin-left:auto pins it right without giving .meta a flex-grow it would then
- * use to stretch its truncated text. */
-.badge {
-  flex: none;
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 1px 7px;
-  white-space: nowrap;
-}
-
 #empty {
   padding: 24px 16px;
   text-align: center;

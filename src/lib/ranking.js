@@ -10,12 +10,22 @@ const URL_MATCH_WEIGHT = 0.5; // a URL/host match counts for less than a name ma
 // bookmark. Small enough that a bookmark you actually launch still climbs.
 const BOOKMARK_PENALTY = 8;
 
+// A host is a pure function of the URL string, so it can be memoized forever.
+// Worth it: every keystroke scores every app whose NAME missed against its host,
+// and re-parsing several hundred URLs per keystroke is pure waste.
+const hosts = new Map();
+
 export function hostOf(url) {
+  const hit = hosts.get(url);
+  if (hit !== undefined) return hit;
+  let host;
   try {
-    return new URL(url).host;
+    host = new URL(url).host;
   } catch {
-    return '';
+    host = '';
   }
+  hosts.set(url, host);
+  return host;
 }
 
 function usageBoost(stat, now) {
