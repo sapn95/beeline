@@ -11,8 +11,12 @@
     <main>
       <h1>Beeline — Fast App Launcher</h1>
       <p class="lead">
-        Manage the apps that show up in the launcher popup. Search them with
-        <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd>.
+        Manage the apps that show up in the launcher popup. Open it without touching the mouse:
+        <!-- Filled in from chrome.commands.getAll(): the browser is the only
+             source of truth here. A suggested key that another extension already
+             owns is silently dropped, so hard-coding it would be a lie. -->
+        <span id="shortcut" class="shortcut"></span>
+        <button id="change-shortcut" type="button" class="linkish">Change…</button>
       </p>
 
       <section>
@@ -86,8 +90,11 @@
         </div>
         <input id="app-filter" type="search" placeholder="Filter apps…" aria-label="Filter apps" />
         <ul id="list" class="apps"></ul>
-        <output id="status" class="status"></output>
       </section>
+
+      <!-- Floats over the page (see .status): with hundreds of apps listed, a
+           message pinned under the list would scroll far out of sight. -->
+      <output id="status" class="status" title="Click to dismiss"></output>
     </main>
     <script type="module" src="options.js"></script>
   </body>

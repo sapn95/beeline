@@ -188,6 +188,22 @@ kbd {
   font-size: 12px;
 }
 
+.shortcut.unset {
+  font-style: italic;
+}
+
+/* A button that reads as a link: it navigates, it does not act on the page. */
+.linkish {
+  border: 0;
+  background: none;
+  padding: 0 0 0 6px;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .apps {
   list-style: none;
   margin: 12px 0 0;
@@ -221,9 +237,60 @@ kbd {
   text-overflow: ellipsis;
 }
 
+/* A toast rather than a line under the app list: the list can be hundreds of
+ * rows long, so anything appended to it is written where nobody is looking.
+ * Empty = no message = nothing rendered, so it never holds space. */
 .status {
-  color: var(--muted);
-  min-height: 1.2em;
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 20;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 11px 18px;
+  border-radius: 999px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 22%);
+  animation: status-in 0.18s ease-out;
+}
+
+.status:empty {
+  display: none;
+}
+
+.status[data-tone='ok']::before {
+  content: '✓';
+  margin-right: 8px;
+  font-weight: 700;
+}
+
+.status[data-tone='error'] {
+  background: var(--danger);
+  color: #fff;
+}
+
+.status[data-tone='error']::before {
+  content: '!';
+  margin-right: 8px;
+  font-weight: 700;
+}
+
+@keyframes status-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status {
+    animation: none;
+  }
 }
 
 .appver {
