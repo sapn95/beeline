@@ -26,8 +26,8 @@
     "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.8.0",
-    "globals": "^17.7.0",
-    "jsdom": "^29.1.1",
+    "globals": "^17.8.0",
+    "jsdom": "^30.0.1",
     "prettier": "^3.9.6",
     "vitest": "^4.1.9"
   }
