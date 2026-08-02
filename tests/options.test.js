@@ -56,10 +56,19 @@ function addTile(name, id, { account = 'me@example.com', parent = document.body 
   return a;
 }
 
-/** Advance fake timers in slices so long, sleep-driven flows settle. */
+/**
+ * Advance fake timers in slices so long, sleep-driven flows settle. Stops once
+ * the Import button is back — running the clock on past the end would also run
+ * out the status toast's own fade, and these tests are about what the import
+ * reported, not about how long the message then stays up.
+ */
 async function tick(total = 30000, step = 250) {
   for (let elapsed = 0; elapsed < total; elapsed += step) {
     await vi.advanceTimersByTimeAsync(step);
+    if (!$('import-myapps').disabled) {
+      await vi.advanceTimersByTimeAsync(step); // let the tail of the flow settle
+      return;
+    }
   }
 }
 
@@ -207,7 +216,7 @@ describe('the status toast', () => {
     await flush();
   };
 
-  it('clears a plain confirmation on its own but keeps anything actionable', async () => {
+  it('clears a plain confirmation quickly and anything actionable eventually', async () => {
     vi.useFakeTimers();
     await mount();
     $('theme').dispatchEvent(new Event('change'));
@@ -218,11 +227,14 @@ describe('the status toast', () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(status()).toBe(''); // gone, so it never sits there stale
 
-    // An error is a different matter: it stays until replaced or clicked away.
+    // Something you may have to act on gets reading time — but it does not park
+    // itself on screen for the rest of the session waiting to be replaced.
     await badSubmit();
     expect($('status').dataset.tone).toBe('error');
-    await vi.advanceTimersByTimeAsync(30000);
+    await vi.advanceTimersByTimeAsync(5000);
     expect(status()).toBe('Enter a name and a valid https:// URL.');
+    await vi.advanceTimersByTimeAsync(11000);
+    expect(status()).toBe('');
   });
 
   it('can be dismissed with a click', async () => {
@@ -714,6 +726,20 @@ describe('import from My Apps', () => {
   const tile = (n, account = 'me@example.com') => ({
     name: `App ${n}`,
     url: `https://launcher.myapps.microsoft.com/api/signin/${n}?login_hint=${account}`,
+  });
+
+  it('keeps the progress message up for as long as the import takes', async () => {
+    await mount();
+    let allow;
+    globalThis.chrome.permissions.request = vi.fn(() => new Promise((r) => (allow = r)));
+    await click($('import-myapps'));
+    expect($('status').dataset.tone).toBe('busy');
+    // Reading a few hundred tiles out of a virtualised grid can run for
+    // minutes. A progress line that timed out mid-run would read as "it died".
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(status()).toMatch(/Requesting access to My Apps/);
+    allow(false);
+    await tick();
   });
 
   it('cannot be started twice by an impatient double-click', async () => {

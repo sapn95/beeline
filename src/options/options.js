@@ -173,28 +173,33 @@ async function onChangeShortcut() {
   );
 }
 
-const STATUS_FADE_MS = 4000;
+// How long a message stays before it clears itself, per tone. A plain
+// confirmation only needs a glance; a result you may have to act on needs
+// reading time, but not the rest of the session — it used to sit there until
+// something replaced it. 0 means it never expires on its own.
+const STATUS_FADE_MS = { ok: 4000, info: 15000, error: 15000, busy: 0 };
 let statusTimer = null;
 
 /**
  * Report something to the user. The page is as long as their app list, so a
  * line parked under the list is a line nobody reads — this floats above it.
- * A plain confirmation ('ok') clears itself; anything you might have to act on
- * ('info' for a running/finished import, 'error') stays until it is replaced or
- * clicked away.
+ * Every message clears itself eventually, except 'busy': an import runs far
+ * longer than any of these timeouts, and a progress line that vanished
+ * mid-import would read as "it died". Clicking or Esc dismisses any of them.
  * @param {string} msg
- * @param {'info'|'ok'|'error'} [tone]
+ * @param {'info'|'ok'|'error'|'busy'} [tone]
  */
 function setStatus(msg, tone = 'info') {
   clearTimeout(statusTimer);
   statusTimer = null;
   statusEl.textContent = msg;
   statusEl.dataset.tone = msg ? tone : '';
-  if (!msg || tone !== 'ok') return;
+  const fade = STATUS_FADE_MS[tone] ?? 0;
+  if (!msg || !fade) return;
   statusTimer = setTimeout(() => {
     // Only clear what we put there: a newer message must not be swallowed.
     if (statusEl.textContent === msg) setStatus('');
-  }, STATUS_FADE_MS);
+  }, fade);
 }
 
 // If the row being edited no longer exists in the current list (removed by a
@@ -693,7 +698,7 @@ async function onImportMyApps() {
   // first one to finish would release the grid lock under the other.
   btn.disabled = true;
   const label = btn.textContent;
-  setStatus('Requesting access to My Apps…');
+  setStatus('Requesting access to My Apps…', 'busy');
   const granted = await chrome.permissions
     .request({ origins: [MYAPPS_PATTERN] })
     .catch(() => false);
@@ -704,7 +709,8 @@ async function onImportMyApps() {
   }
 
   btn.textContent = 'Importing…';
-  setStatus('Reading your apps in a background window (you can keep working here)…');
+  // 'busy': this one has to survive the whole read, which can take minutes.
+  setStatus('Reading your apps in a background window (you can keep working here)…', 'busy');
   // Claim the grid so the background auto-sync stands down for the duration.
   // If the claim FAILS we can't be sure sync stays off, and a second scroll loop
   // makes this read skip tiles — so the run is downgraded to merge-only below
