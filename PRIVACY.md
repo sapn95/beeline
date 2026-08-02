@@ -62,6 +62,11 @@ it.
   from an already-open My Apps tab.
 - **search** — only used if you enable the "web" fallback: it runs your typed
   query in your browser's default search engine when no app matches.
+- **favicon** — to show each entry's site icon in the launcher. It reads the
+  icon your browser has **already cached locally** for a page you have visited.
+  No network request is made, no page is read, and nothing is transmitted. Only
+  entries that carry no icon of their own (bookmarks, apps whose tenant uploaded
+  no logo, apps you added by hand) are looked up this way.
 - **Host access to `https://myapplications.microsoft.com/*`** — an _optional_
   permission, requested the first time you import, and used solely to read your
   own app tiles from that page (on import and on auto-sync).
