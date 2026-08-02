@@ -9,7 +9,7 @@
 
 const APPS_KEY = 'apps';
 const STATS_KEY = 'stats';
-const SETTINGS_KEY = 'settings';
+export const SETTINGS_KEY = 'settings';
 
 export const DEFAULT_SETTINGS = {
   openInNewTab: true,
@@ -20,7 +20,24 @@ export const DEFAULT_SETTINGS = {
   // Off by default: it needs the optional `bookmarks` permission, which the
   // options page asks for only when you tick the box.
   includeBookmarks: false,
+  // How often the periodic sync runs, in minutes; 0 turns the timer off. The
+  // options page offers a fixed set (see SYNC_INTERVALS) rather than a free
+  // number, because a few minutes would leave the grid being walked constantly.
+  syncIntervalMin: 360, // 6 hours
+  // Also sync whenever you land on the My Apps portal yourself. This is the
+  // trigger that can actually PRUNE, because the tab is then in the foreground
+  // and the virtualised grid really renders — see background.js.
+  syncOnVisit: true,
 };
+
+/** The periodic-sync choices the options page offers, in minutes. */
+export const SYNC_INTERVALS = [
+  { value: 0, label: 'Off' },
+  { value: 60, label: 'Every hour' },
+  { value: 360, label: 'Every 6 hours' },
+  { value: 720, label: 'Every 12 hours' },
+  { value: 1440, label: 'Every 24 hours' },
+];
 
 function syncArea() {
   return globalThis.chrome && chrome.storage ? chrome.storage.sync : null;

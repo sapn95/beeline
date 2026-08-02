@@ -107,3 +107,83 @@ export function accountHintFromApps(apps) {
   }
   return best;
 }
+
+// Injected into the My Apps page: scroll one viewport down. The grid is
+// virtualised inside an inner scroll panel, so we scroll the scrollable
+// ancestors OF THE TILES THEMSELVES (plus the window) — scoping to tile-bearing
+// scrollers stops an unrelated panel from holding the loop open forever.
+// Returns 0 once NOTHING can advance any further (the reliable "at the bottom"
+// signal, independent of trailing padding); otherwise the largest distance still
+// left to the bottom.
+export function scrollMyAppsStepInPage() {
+  const step = Math.round(window.innerHeight * 0.8) || 600;
+  const overflows = (el, min) =>
+    !!el && el.scrollHeight - el.clientHeight > min && el.clientHeight > 150;
+  const gap = (el) => el.scrollHeight - (el.scrollTop + el.clientHeight);
+  const nearestScroller = (node) => {
+    // Walk past <body> too — on some layouts the grid's scroll container IS the
+    // body. Stop at <html>, which window.scrollBy already drives.
+    for (
+      let el = node.parentElement;
+      el && el !== document.documentElement;
+      el = el.parentElement
+    ) {
+      if (overflows(el, 4)) return el;
+    }
+    return null;
+  };
+
+  // The tile selector mirrors the scraper (importer.js) so direct-link icon tiles
+  // count as tiles here too; we scroll each tile's nearest scrollable ancestor.
+  const tiles = document.querySelectorAll(
+    'a[href*="launcher.myapps.microsoft.com"], a[href*="/api/signin/"], a[href*="/launch"], ' +
+      '[role="gridcell"], main a[href]:has(img), [role="main"] a[href]:has(img)',
+  );
+  const scrollers = new Set();
+  for (const tile of tiles) {
+    const s = nearestScroller(tile);
+    if (s) scrollers.add(s);
+  }
+  // Fallback (empty grid / unknown markup): all sizeably-scrollable blocks.
+  if (scrollers.size === 0) {
+    for (const el of document.querySelectorAll('div, main, section, ul')) {
+      if (overflows(el, 200)) scrollers.add(el);
+    }
+  }
+
+  // Scroll window + each tile scroller, tracking whether ANYTHING advanced and
+  // how far the deepest scroller still has to go.
+  const winBefore = window.scrollY;
+  window.scrollBy(0, step);
+  const winMoved = window.scrollY !== winBefore;
+  let moved = winMoved;
+  // The document-level distance only counts when the WINDOW is really what
+  // scrolls. An app shell (fixed-height <html>, grid inside its own scroller)
+  // can report a document far taller than the viewport that no scrollBy will
+  // ever move: a phantom gap that never falls to 0, so the bottom is never
+  // detected and EVERY import ends merge-only ("Run Import again to finish")
+  // even after it walked the whole grid. Ignore it — but only while a
+  // tile-bearing inner scroller exists to be the real one. With no inner
+  // scroller the window is all we have, and its claim must still be believed.
+  const windowScrolls = winMoved || window.scrollY > 0 || scrollers.size === 0;
+  let maxRemaining = windowScrolls
+    ? document.documentElement.scrollHeight - (window.scrollY + window.innerHeight)
+    : 0;
+  for (const el of scrollers) {
+    const before = el.scrollTop;
+    el.scrollTop += step;
+    if (el.scrollTop !== before) moved = true;
+    maxRemaining = Math.max(maxRemaining, gap(el));
+  }
+
+  if (moved) return Math.max(0, maxRemaining);
+  // Nothing advanced. If a scroller we CAN see still reports distance to go, the
+  // answer is "unknown" (null), never "bottom" — calling that bottom would let a
+  // single virtualised slice pass as a complete read, and the reconcile would
+  // then delete every app that wasn't in it. If nothing anywhere has room left,
+  // the page really is fully shown (a short list that needs no scrolling), so
+  // report 0. NOTE: a scroller we cannot see at all (shadow root, iframe) is
+  // indistinguishable from that case here — the growth cap in accumulateApps is
+  // the remaining backstop.
+  return maxRemaining <= 4 ? 0 : null;
+}

@@ -1,6 +1,10 @@
-import { getApps, mutateApps, getSettings, saveSettings } from '../lib/storage.js';
+import { getApps, mutateApps, getSettings, saveSettings, SYNC_INTERVALS } from '../lib/storage.js';
 import { normalizeApp, normalizeAppList, mergeApps, reconcileApps } from '../lib/apps.js';
-import { scrapeAppsFromDocument, accountHintFromApps } from '../lib/importer.js';
+import {
+  scrapeAppsFromDocument,
+  accountHintFromApps,
+  scrollMyAppsStepInPage,
+} from '../lib/importer.js';
 import { accumulateApps } from '../lib/collector.js';
 
 const MYAPPS_ORIGIN = 'https://myapplications.microsoft.com/';
@@ -28,6 +32,7 @@ async function init() {
   // silently unbound and it looks like the apps are gone.
   wireControls();
   populateRegions();
+  populateSyncIntervals();
   showShortcut();
 
   // Load + heal: re-normalise stored apps once so legacy names saved before the
@@ -73,6 +78,8 @@ function wireControls() {
   document.getElementById('fallback-search').addEventListener('change', onSettingChange);
   document.getElementById('aws-region').addEventListener('change', onSettingChange);
   document.getElementById('theme').addEventListener('change', onSettingChange);
+  document.getElementById('sync-interval').addEventListener('change', onSettingChange);
+  document.getElementById('sync-on-visit').addEventListener('change', onSettingChange);
   document.getElementById('change-shortcut').addEventListener('click', onChangeShortcut);
   statusEl.addEventListener('click', () => setStatus(''));
   // Esc dismisses it as well. <output> is a live region rather than a control,
@@ -471,86 +478,6 @@ const withTimeout = (promise, ms) =>
     new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
   ]);
 
-// Injected into the My Apps page: scroll one viewport down. The grid is
-// virtualised inside an inner scroll panel, so we scroll the scrollable
-// ancestors OF THE TILES THEMSELVES (plus the window) — scoping to tile-bearing
-// scrollers stops an unrelated panel from holding the loop open forever.
-// Returns 0 once NOTHING can advance any further (the reliable "at the bottom"
-// signal, independent of trailing padding); otherwise the largest distance still
-// left to the bottom.
-function scrollMyAppsStepInPage() {
-  const step = Math.round(window.innerHeight * 0.8) || 600;
-  const overflows = (el, min) =>
-    !!el && el.scrollHeight - el.clientHeight > min && el.clientHeight > 150;
-  const gap = (el) => el.scrollHeight - (el.scrollTop + el.clientHeight);
-  const nearestScroller = (node) => {
-    // Walk past <body> too — on some layouts the grid's scroll container IS the
-    // body. Stop at <html>, which window.scrollBy already drives.
-    for (
-      let el = node.parentElement;
-      el && el !== document.documentElement;
-      el = el.parentElement
-    ) {
-      if (overflows(el, 4)) return el;
-    }
-    return null;
-  };
-
-  // The tile selector mirrors the scraper (importer.js) so direct-link icon tiles
-  // count as tiles here too; we scroll each tile's nearest scrollable ancestor.
-  const tiles = document.querySelectorAll(
-    'a[href*="launcher.myapps.microsoft.com"], a[href*="/api/signin/"], a[href*="/launch"], ' +
-      '[role="gridcell"], main a[href]:has(img), [role="main"] a[href]:has(img)',
-  );
-  const scrollers = new Set();
-  for (const tile of tiles) {
-    const s = nearestScroller(tile);
-    if (s) scrollers.add(s);
-  }
-  // Fallback (empty grid / unknown markup): all sizeably-scrollable blocks.
-  if (scrollers.size === 0) {
-    for (const el of document.querySelectorAll('div, main, section, ul')) {
-      if (overflows(el, 200)) scrollers.add(el);
-    }
-  }
-
-  // Scroll window + each tile scroller, tracking whether ANYTHING advanced and
-  // how far the deepest scroller still has to go.
-  const winBefore = window.scrollY;
-  window.scrollBy(0, step);
-  const winMoved = window.scrollY !== winBefore;
-  let moved = winMoved;
-  // The document-level distance only counts when the WINDOW is really what
-  // scrolls. An app shell (fixed-height <html>, grid inside its own scroller)
-  // can report a document far taller than the viewport that no scrollBy will
-  // ever move: a phantom gap that never falls to 0, so the bottom is never
-  // detected and EVERY import ends merge-only ("Run Import again to finish")
-  // even after it walked the whole grid. Ignore it — but only while a
-  // tile-bearing inner scroller exists to be the real one. With no inner
-  // scroller the window is all we have, and its claim must still be believed.
-  const windowScrolls = winMoved || window.scrollY > 0 || scrollers.size === 0;
-  let maxRemaining = windowScrolls
-    ? document.documentElement.scrollHeight - (window.scrollY + window.innerHeight)
-    : 0;
-  for (const el of scrollers) {
-    const before = el.scrollTop;
-    el.scrollTop += step;
-    if (el.scrollTop !== before) moved = true;
-    maxRemaining = Math.max(maxRemaining, gap(el));
-  }
-
-  if (moved) return Math.max(0, maxRemaining);
-  // Nothing advanced. If a scroller we CAN see still reports distance to go, the
-  // answer is "unknown" (null), never "bottom" — calling that bottom would let a
-  // single virtualised slice pass as a complete read, and the reconcile would
-  // then delete every app that wasn't in it. If nothing anywhere has room left,
-  // the page really is fully shown (a short list that needs no scrolling), so
-  // report 0. NOTE: a scroller we cannot see at all (shadow root, iframe) is
-  // indistinguishable from that case here — the growth cap in accumulateApps is
-  // the remaining backstop.
-  return maxRemaining <= 4 ? 0 : null;
-}
-
 // Scroll + scrape one round. Returns the app array, or null when the page is
 // not accessible yet (still on the Microsoft sign-in origin, or still loading).
 async function scrapeTab(tabId) {
@@ -913,6 +840,16 @@ function populateRegions() {
   }
 }
 
+function populateSyncIntervals() {
+  const sel = document.getElementById('sync-interval');
+  for (const { value, label } of SYNC_INTERVALS) {
+    const o = document.createElement('option');
+    o.value = String(value);
+    o.textContent = label;
+    sel.append(o);
+  }
+}
+
 function applyTheme(theme) {
   const t = theme || 'auto'; // 'auto' | 'light' | 'dark'
   document.documentElement.dataset.theme = t;
@@ -968,6 +905,8 @@ async function loadSettings() {
   document.getElementById('fallback-search').value = settings.fallbackSearch;
   document.getElementById('aws-region').value = settings.awsRegion;
   document.getElementById('theme').value = settings.theme;
+  document.getElementById('sync-interval').value = String(settings.syncIntervalMin);
+  document.getElementById('sync-on-visit').checked = Boolean(settings.syncOnVisit);
   applyTheme(settings.theme);
   // Last, because it needs a second async round-trip: show what is actually in
   // effect. The permission can be revoked in the browser's own extension
@@ -995,6 +934,10 @@ async function onSettingChange() {
     awsRegion: document.getElementById('aws-region').value.trim(),
     theme,
     includeBookmarks: document.getElementById('include-bookmarks').checked,
+    // The background worker watches for this write and re-arms its alarm, so a
+    // new interval takes effect now rather than at the next browser restart.
+    syncIntervalMin: Number(document.getElementById('sync-interval').value) || 0,
+    syncOnVisit: document.getElementById('sync-on-visit').checked,
   });
   applyTheme(theme); // reflect the new theme on this page immediately
   setStatus('Settings saved.', 'ok');

@@ -207,6 +207,39 @@ describe('initial render', () => {
     expect(document.documentElement.dataset.theme).toBe('light');
     expect(status()).toBe('Settings saved.');
   });
+
+  it('offers the sync intervals and shows the saved one', async () => {
+    await mount({ settings: { syncIntervalMin: 720, syncOnVisit: false } });
+    expect([...$('sync-interval').options].map((o) => o.value)).toEqual([
+      '0',
+      '60',
+      '360',
+      '720',
+      '1440',
+    ]);
+    expect($('sync-interval').value).toBe('720');
+    expect($('sync-on-visit').checked).toBe(false);
+  });
+
+  it('saves the interval as a number so the alarm can use it directly', async () => {
+    await mount();
+    $('sync-interval').value = '60';
+    $('sync-on-visit').checked = false;
+    $('sync-interval').dispatchEvent(new Event('change'));
+    await flush();
+    expect(globalThis.chrome.storage.sync.store.settings).toMatchObject({
+      syncIntervalMin: 60, // a string here would never match an alarm's period
+      syncOnVisit: false,
+    });
+  });
+
+  it('saves "Off" as 0 rather than an empty string', async () => {
+    await mount();
+    $('sync-interval').value = '0';
+    $('sync-interval').dispatchEvent(new Event('change'));
+    await flush();
+    expect(globalThis.chrome.storage.sync.store.settings.syncIntervalMin).toBe(0);
+  });
 });
 
 describe('the status toast', () => {

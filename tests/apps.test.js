@@ -7,6 +7,8 @@ import {
   normalizeAppList,
   mergeApps,
   reconcileApps,
+  applySyncRead,
+  isSuspectRead,
   withAwsRegion,
 } from '../src/lib/apps.js';
 
@@ -224,5 +226,102 @@ describe('withAwsRegion', () => {
       samlRelayState: false,
     });
     expect(new URL(out).searchParams.get('region')).toBe('eu-central-2');
+  });
+});
+
+describe('applySyncRead', () => {
+  const scraped = (n) => ({ name: `App ${n}`, url: `https://app${n}.example.com/` });
+  const stored = (n, extra = {}) => ({ ...scraped(n), source: 'myapps', ...extra });
+
+  it('adds what is new and leaves what is still there alone', () => {
+    const { apps, removed } = applySyncRead([stored(1)], [scraped(1), scraped(2)]);
+    expect(apps.map((a) => a.name)).toEqual(['App 1', 'App 2']);
+    expect(apps.every((a) => a.missing === undefined)).toBe(true);
+    expect(removed).toEqual([]);
+  });
+
+  it('marks a missing app on the first read and removes it on the second', () => {
+    const first = applySyncRead([stored(1), stored(2)], [scraped(1)]);
+    expect(first.apps.find((a) => a.name === 'App 2')).toMatchObject({ missing: 1 });
+    expect(first.removed).toEqual([]);
+
+    const second = applySyncRead(first.apps, [scraped(1)]);
+    expect(second.apps.map((a) => a.name)).toEqual(['App 1']);
+    expect(second.removed.map((a) => a.name)).toEqual(['App 2']);
+  });
+
+  it('clears the count as soon as the app is seen again', () => {
+    // Otherwise two unlucky reads weeks apart would add up and delete an app
+    // that was present every time in between.
+    const marked = [stored(1), stored(2, { missing: 1 })];
+    const { apps } = applySyncRead(marked, [scraped(1), scraped(2)]);
+    expect(apps.find((a) => a.name === 'App 2').missing).toBeUndefined();
+  });
+
+  it('never touches a manual app, however often it is missing', () => {
+    const manual = { name: 'Hand-made', url: 'https://manual.example.com/', source: 'manual' };
+    let apps = [manual, stored(1)];
+    for (let i = 0; i < 5; i++) apps = applySyncRead(apps, [scraped(1)]).apps;
+    expect(apps.map((a) => a.name)).toEqual(['Hand-made', 'App 1']);
+  });
+
+  it('honours a stricter strike count', () => {
+    const { removed } = applySyncRead([stored(1)], [], { strikes: 1 });
+    expect(removed.map((a) => a.name)).toEqual(['App 1']);
+  });
+});
+
+describe('isSuspectRead', () => {
+  const known = (n) =>
+    Array.from({ length: n }, (_, i) => ({
+      name: `App ${i}`,
+      url: `https://app${i}.example.com/`,
+      source: 'myapps',
+    }));
+
+  it('accepts a read that found everything', () => {
+    expect(isSuspectRead(known(50), known(50))).toBe(false);
+  });
+
+  it('accepts everyday churn — a handful of apps really did go', () => {
+    expect(isSuspectRead(known(50), known(50).slice(0, 46))).toBe(false);
+  });
+
+  it('rejects a read that lost a large slice of the list', () => {
+    expect(isSuspectRead(known(50), known(50).slice(0, 20))).toBe(true);
+  });
+
+  it('lets a short list lose apps without tripping the percentage', () => {
+    // 1 of 4 gone is 25%, but it is also just one app — a floor keeps a small
+    // list from being frozen by a ratio.
+    expect(isSuspectRead(known(4), known(4).slice(0, 3))).toBe(false);
+  });
+
+  it('has nothing to protect before the first sync', () => {
+    expect(isSuspectRead([], [])).toBe(false);
+    expect(
+      isSuspectRead([{ name: 'M', url: 'https://m.example.com/', source: 'manual' }], []),
+    ).toBe(false);
+  });
+});
+
+describe('the strike counter as stored data', () => {
+  it('survives a round trip through normalizeApp, capped', () => {
+    const raw = { name: 'A', url: 'https://a.example.com/', source: 'myapps', missing: 2 };
+    expect(normalizeApp(raw).missing).toBe(2);
+    expect(normalizeApp({ ...raw, missing: 99 }).missing).toBe(9);
+  });
+
+  it('ignores a value that is not a count', () => {
+    const raw = { name: 'A', url: 'https://a.example.com/', source: 'myapps' };
+    for (const missing of [0, -1, 1.5, 'lots', null, undefined]) {
+      expect(normalizeApp({ ...raw, missing }).missing).toBeUndefined();
+    }
+  });
+
+  it('is wiped by a manual import, which settles the whole list', () => {
+    const marked = [{ name: 'A', url: 'https://a.example.com/', source: 'myapps', missing: 1 }];
+    const out = reconcileApps(marked, [{ name: 'A', url: 'https://a.example.com/' }]);
+    expect(out[0].missing).toBeUndefined();
   });
 });

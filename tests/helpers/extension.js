@@ -88,7 +88,10 @@ export function makeChrome({
       create: vi.fn(async () => ({ id: 1 })),
       update: vi.fn(async () => ({ id: 1 })),
       query: vi.fn(async () => []),
-      get: vi.fn(async () => ({ status: 'complete' })),
+      // `active` decides how much a background sync's read is worth: only a tab
+      // the user can actually see renders the virtualised grid well enough for
+      // the read to be trusted with removals (background.js syncTab).
+      get: vi.fn(async () => ({ status: 'complete', active: true })),
       onUpdated: makeEvent(),
     },
     windows: {
@@ -112,6 +115,7 @@ export function makeChrome({
     alarms: {
       get: vi.fn(async () => undefined),
       create: vi.fn(),
+      clear: vi.fn(async () => true),
       onAlarm: makeEvent(),
     },
     commands: {

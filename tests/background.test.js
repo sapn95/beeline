@@ -11,6 +11,9 @@ import { appId } from '../src/lib/apps.js';
 const MYAPPS_URL = 'https://myapplications.microsoft.com/';
 const app = (name, url, source) => ({ id: appId(url), name, url, source });
 const EXISTING = [app('Wiki', 'https://wiki.example.com/', 'manual')];
+// A previously-scraped app with no tile in the DOM: the thing a sync is
+// supposed to notice is gone — and the thing a bad read must never take away.
+const GONE = app('Gone', 'https://launcher.myapps.microsoft.com/api/signin/gone', 'myapps');
 
 async function boot({ local = { apps: EXISTING }, granted = true, chromeOptions = {} } = {}) {
   globalThis.chrome = makeChrome({ local, granted, ...chromeOptions });
@@ -68,10 +71,38 @@ describe('first run and alarms', () => {
 
   it('keeps an existing alarm instead of resetting its schedule', async () => {
     const c = await boot();
-    c.alarms.get = vi.fn(async () => ({ name: 'beeline-sync' }));
+    c.alarms.get = vi.fn(async () => ({ name: 'beeline-sync', periodInMinutes: 360 }));
     await c.runtime.onStartup.emit();
     await flush();
     expect(c.alarms.create).not.toHaveBeenCalled();
+  });
+
+  it('uses the interval from the settings', async () => {
+    const c = await boot({ chromeOptions: { sync: { settings: { syncIntervalMin: 60 } } } });
+    await c.runtime.onStartup.emit();
+    await flush();
+    expect(c.alarms.create).toHaveBeenCalledWith('beeline-sync', { periodInMinutes: 60 });
+  });
+
+  it('clears the alarm when the periodic sync is switched off', async () => {
+    const c = await boot({ chromeOptions: { sync: { settings: { syncIntervalMin: 0 } } } });
+    c.alarms.get = vi.fn(async () => ({ name: 'beeline-sync', periodInMinutes: 360 }));
+    await c.runtime.onStartup.emit();
+    await flush();
+    expect(c.alarms.clear).toHaveBeenCalledWith('beeline-sync');
+    expect(c.alarms.create).not.toHaveBeenCalled();
+  });
+
+  it('re-arms as soon as the interval is changed', async () => {
+    // Without this the old period would keep running until the next browser
+    // restart, and picking "every hour" would look like it did nothing.
+    const c = await boot();
+    c.alarms.create.mockClear();
+    c.alarms.get = vi.fn(async () => ({ name: 'beeline-sync', periodInMinutes: 360 }));
+    c.storage.sync.store.settings = { syncIntervalMin: 1440 };
+    await c.storage.onChanged.emit({ settings: { newValue: { syncIntervalMin: 1440 } } }, 'sync');
+    await flush();
+    expect(c.alarms.create).toHaveBeenCalledWith('beeline-sync', { periodInMinutes: 1440 });
   });
 });
 
@@ -91,6 +122,14 @@ describe('syncing when you visit My Apps', () => {
     await c.tabs.onUpdated.emit(12, { status: 'complete' }, { url: 'https://example.com/' });
     await c.tabs.onUpdated.emit(13, { status: 'complete' }, {});
     await runSync(5000);
+    expect(c.scripting.executeScript).not.toHaveBeenCalled();
+  });
+
+  it('stays out of the way when the visit sync is switched off', async () => {
+    const c = await boot({ chromeOptions: { sync: { settings: { syncOnVisit: false } } } });
+    addTile('App 1', '1');
+    await c.tabs.onUpdated.emit(11, { status: 'complete' }, { url: MYAPPS_URL });
+    await runSync();
     expect(c.scripting.executeScript).not.toHaveBeenCalled();
   });
 
@@ -127,6 +166,57 @@ describe('the periodic alarm', () => {
     await c.alarms.onAlarm.emit({ name: 'some-other-alarm' });
     await runSync(5000);
     expect(c.scripting.executeScript).not.toHaveBeenCalled();
+  });
+});
+
+describe('removing apps that are gone from My Apps', () => {
+  async function visit(c, ms) {
+    await c.tabs.onUpdated.emit(11, { status: 'complete' }, { url: MYAPPS_URL });
+    await runSync(ms);
+  }
+
+  const stored = (name) => storedApps().find((a) => a.name === name);
+
+  it('drops an app only after two syncs in a row have missed it', async () => {
+    const c = await boot({ local: { apps: [...EXISTING, GONE] } });
+    addTile('App 1', '1'); // 'Gone' has no tile: it is no longer in the portal
+
+    await visit(c);
+    // One read is never enough. Any single walk of a virtualised grid can come
+    // back short, so the first miss only marks the app.
+    expect(stored('Gone')).toMatchObject({ missing: 1 });
+
+    await visit(c);
+    expect(stored('Gone')).toBeUndefined();
+    expect(stored('Wiki')).toBeDefined(); // a manual app is never touched
+    expect(stored('App 1')).toBeDefined();
+  });
+
+  it('forgives an app that turns up again', async () => {
+    const c = await boot({ local: { apps: [...EXISTING, GONE] } });
+    addTile('App 1', '1');
+    await visit(c);
+    expect(stored('Gone')).toMatchObject({ missing: 1 });
+
+    // The tile is back, so the earlier miss was the read's fault, not the
+    // portal's. The count has to reset, or two unlucky reads a week apart
+    // would add up and delete an app that never went anywhere.
+    addTile('Gone', 'gone');
+    await visit(c);
+    expect(stored('Gone').missing).toBeUndefined();
+  });
+
+  it('only ever adds when the tab is not the one on screen', async () => {
+    // A background tab's My Apps throttles rendering, so a short read there says
+    // nothing about what the user still has.
+    const c = await boot({ local: { apps: [...EXISTING, GONE] } });
+    c.tabs.get = vi.fn(async () => ({ status: 'complete', active: false }));
+    addTile('App 1', '1');
+    await visit(c);
+    await visit(c);
+    expect(stored('Gone')).toBeDefined();
+    expect(stored('Gone').missing).toBeUndefined();
+    expect(stored('App 1')).toBeDefined(); // adding still works
   });
 });
 
@@ -227,29 +317,59 @@ describe('safety rules', () => {
     expect(c.storage.local.set).not.toHaveBeenCalled();
   });
 
-  it.each(['scrapeAppsFromDocument', 'scrollStep'])(
-    'abandons the round when the %s injection outlives its timeout',
-    async (slow) => {
-      const c = await boot();
-      const run = c.scripting.executeScript;
-      // Only ONE of the two injections is slow, so each timeout is pinned on its
-      // own rather than the pair being covered collectively. It DOES resolve —
-      // 20s late — so without the 8s timeout the loop would happily use the
-      // result and write; "nothing written" can only mean the timeout fired.
-      c.scripting.executeScript = vi.fn((args) => {
-        if (args.func.name !== slow) return run(args);
-        return new Promise((resolve) => {
-          setTimeout(
-            () => resolve([{ result: [{ name: 'Late', url: 'https://late.example.com/' }] }]),
-            20000,
-          );
-        });
+  /** Make one of the two injections resolve 20s late, the other run for real. */
+  function slowInjection(c, slow) {
+    const run = c.scripting.executeScript;
+    c.scripting.executeScript = vi.fn((args) => {
+      if (args.func.name !== slow) return run(args);
+      return new Promise((resolve) => {
+        setTimeout(
+          () => resolve([{ result: [{ name: 'Late', url: 'https://late.example.com/' }] }]),
+          20000,
+        );
       });
-      addTile('App 1', '1');
-      await visit(c, 260000);
-      expect(c.storage.local.set).not.toHaveBeenCalled();
-    },
-  );
+    });
+  }
+
+  it('abandons the round when the scrape injection outlives its timeout', async () => {
+    const c = await boot();
+    // It DOES resolve — 20s late — so without the 8s timeout the loop would
+    // happily use the result and write. "Nothing written" can only mean the
+    // timeout fired: a scrape that never answers leaves nothing to store.
+    slowInjection(c, 'scrapeAppsFromDocument');
+    addTile('App 1', '1');
+    await visit(c, 260000);
+    expect(c.storage.local.set).not.toHaveBeenCalled();
+  });
+
+  it('may add but never remove when the scroll injection times out', async () => {
+    const c = await boot({ local: { apps: [...EXISTING, GONE] } });
+    // A scroll that never answers means the walk cannot advance, so the read
+    // only ever sees the first slice of a virtualised grid. That is a partial
+    // read by definition — it is allowed to add the tile it really did see, but
+    // must not conclude anything about the apps it never got to.
+    slowInjection(c, 'scrollMyAppsStepInPage');
+    addTile('App 1', '1');
+    await visit(c, 260000);
+    expect(storedApps().map((a) => a.name)).toEqual(
+      expect.arrayContaining(['Wiki', 'Gone', 'App 1']),
+    );
+  });
+
+  it('discards a read that suddenly cannot find most of the list', async () => {
+    // 20 known apps, 2 tiles rendered. Far likelier to be a read that stalled
+    // than 18 apps revoked at once — so the read is dropped whole: it neither
+    // removes NOR strikes, and the next sync gets to decide instead.
+    const many = Array.from({ length: 20 }, (_, i) =>
+      app(`App ${i}`, `https://launcher.myapps.microsoft.com/api/signin/${i}`, 'myapps'),
+    );
+    const c = await boot({ local: { apps: many } });
+    addTile('App 0', '0');
+    addTile('App 1', '1');
+    await visit(c);
+    expect(storedApps()).toHaveLength(20); // all still there...
+    expect(storedApps().some((a) => a.missing)).toBe(false); // ...and unblemished
+  });
 
   it('stands down when the import flag cannot even be read', async () => {
     const c = await boot();

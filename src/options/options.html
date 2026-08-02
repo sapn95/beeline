@@ -81,6 +81,20 @@
             <option value="dark">Dark</option>
           </select>
         </label>
+        <label class="select">
+          Keep in sync with My Apps:
+          <select id="sync-interval"></select>
+        </label>
+        <label class="check">
+          <input id="sync-on-visit" type="checkbox" /> Also sync when you open the My Apps portal
+        </label>
+        <p class="note">
+          Syncing adds apps that appeared and removes ones that are gone. An app is only removed
+          after two syncs in a row have missed it, and a sync that suddenly cannot find a large part
+          of your list is discarded rather than acted on — so a half-read page can never empty the
+          launcher. Removal needs the portal tab to be the one on screen, which is what the visit
+          sync is for; a sync of a background tab can only add.
+        </p>
       </section>
 
       <section>

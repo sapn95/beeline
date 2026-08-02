@@ -105,6 +105,17 @@ sequenceDiagram
   path — so it is fully unit-testable and carries the coverage gate (see
   `vitest.config.js`). UI glue (`popup`, `options`, `background`) is thin and
   verified by load-unpacked smoke testing.
+- **Removal earns its confidence over time, not in one read.** The manual Import
+  is the user watching a full walk of the grid, so it reconciles outright. The
+  automatic sync runs unattended and cannot be that sure, so it never deletes on
+  the strength of a single read: an app it fails to find collects a strike
+  (`applySyncRead`), and only a second consecutive miss removes it — being seen
+  again clears the count. Two further rails sit in front of that. A read missing
+  an implausible slice of the known list is thrown away whole (`isSuspectRead`),
+  which is what stops a read that stalls in the SAME place every time from lining
+  its misses up into a deletion. And a read of a tab that is not the active one
+  may only ever add, because a background My Apps throttles rendering of its
+  virtualised grid and would come back short through nobody's fault.
 - **A partial read may never delete.** `accumulateApps()` reports `complete`
   only when the grid reached its bottom and produced nothing new for several
   consecutive rounds. Anything else — a timeout, the no-growth safety cap, a

@@ -40,11 +40,14 @@ actually has bound.)
 - 📥 **Import from My Apps** — one click pulls your tiles from
   `myapplications.microsoft.com` (host permission requested only then), plus
   manual add, inline **edit**, and JSON import/export.
-- 🔄 **Stays in sync** — re-scrapes whenever you visit My Apps (and on a periodic
-  background check), adding new apps and removing ones you no longer have; your
-  manually-added apps are always kept. A read that did not make it to the end of
-  the (virtualised) grid can only ever add — nothing is removed on a partial
-  view of your portal.
+- 🔄 **Stays in sync** — re-scrapes whenever you visit My Apps and on a timer you
+  choose (hourly through daily, or off; both triggers switch off independently),
+  adding apps that appeared and removing ones that are gone. Your manually-added
+  apps are always kept. Removal is deliberately slow to trust itself: an app has
+  to be missing from **two syncs in a row** before it goes, a sync that suddenly
+  cannot find a large part of your list is discarded rather than acted on, and a
+  sync of a portal tab you can't see can only ever add. So a half-read page never
+  empties the launcher.
 - 🔖 **Bookmarks too — if you want** — switch on _"Also search this browser's
   bookmarks"_ in the settings and your bookmarks join the search results (each
   showing the folder it lives in, and ranked just below an app of the same

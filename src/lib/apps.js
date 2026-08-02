@@ -74,6 +74,12 @@ export function normalizeApp(raw) {
   // Provenance: 'manual' (user added/edited) or 'myapps' (scraped). Drives
   // reconcileApps — only 'myapps' entries are pruned on a re-sync.
   if (raw.source === 'manual' || raw.source === 'myapps') app.source = raw.source;
+  // Strikes from the automatic sync: how many usable reads in a row failed to
+  // find this app. Absent means "seen last time". See applySyncRead. Capped so
+  // a corrupted value can't grow without bound; this whitelist is the only way
+  // the field survives a round trip through storage at all.
+  const missing = Number(raw.missing);
+  if (Number.isInteger(missing) && missing > 0) app.missing = Math.min(missing, 9);
   return app;
 }
 
@@ -135,7 +141,75 @@ export function reconcileApps(existing, scraped) {
     const legacy = legacyById.get(app.id);
     map.set(app.id, legacy ? { ...legacy, source: 'myapps' } : app);
   }
-  return [...map.values()];
+  // A manual import is the user watching a complete walk of the grid: it settles
+  // the question for every app, so nothing is left carrying a strike.
+  return [...map.values()].map(unmarked);
+}
+
+/** Drop the automatic sync's strike counter from a record. */
+function unmarked(app) {
+  if (app.missing === undefined) return app;
+  const copy = { ...app };
+  delete copy.missing;
+  return copy;
+}
+
+/**
+ * Apply one automatic background read to the stored list: add what is new, and
+ * move what is gone one step closer to being removed.
+ *
+ * Where reconcileApps is the user watching a full import, this runs unattended
+ * against a virtualised grid that can stall anywhere, so a SINGLE read is never
+ * allowed to delete. An app the read did not find collects a strike; it goes
+ * only once `strikes` reads in a row have missed it, and being found again
+ * clears the count. One bad read therefore costs nothing but a cycle's delay.
+ *
+ * Manual apps and untagged legacy records are never struck or removed.
+ *
+ * @param {number} [strikes] consecutive misses before an app is dropped.
+ * @returns {{apps: Array, removed: Array}} the new list, and what fell out of it.
+ */
+export function applySyncRead(existing, scraped, { strikes = 2 } = {}) {
+  const incoming = normalizeAppList(scraped).map((a) => ({ ...a, source: 'myapps' }));
+  const seen = new Set(incoming.map((a) => a.id));
+  const apps = [];
+  const removed = [];
+  for (const app of mergeApps(existing, incoming)) {
+    if (app.source !== 'myapps' || seen.has(app.id)) {
+      apps.push(unmarked(app)); // still there, or not ours to prune
+      continue;
+    }
+    const strike = (app.missing ?? 0) + 1;
+    if (strike >= strikes) removed.push(app);
+    else apps.push({ ...app, missing: strike });
+  }
+  return { apps, removed };
+}
+
+/**
+ * Does this read look like it only saw PART of the grid?
+ *
+ * The strike counter above defends against a read that stalls somewhere random.
+ * It cannot defend against one that stalls in the same place every time — those
+ * misses line up, and the apps behind the stall would be struck out. So a read
+ * that suddenly cannot find a large slice of what we already know is thrown away
+ * whole: it neither adds nor strikes, and the next one gets to decide.
+ *
+ * The threshold is deliberately generous downward. Losing a handful of apps is
+ * everyday churn and should just happen; losing a tenth of them at once is
+ * either a broken read or news big enough to be worth a manual Import.
+ *
+ * @param {number} [maxMissingRatio] fraction of the known 'myapps' apps that may
+ *   be absent before the read is called suspect.
+ * @param {number} [floor] never suspect while at most this many are absent, so a
+ *   short list is not held hostage by a percentage.
+ */
+export function isSuspectRead(existing, scraped, { maxMissingRatio = 0.1, floor = 5 } = {}) {
+  const known = normalizeAppList(existing).filter((a) => a.source === 'myapps');
+  if (known.length === 0) return false; // nothing to lose yet
+  const seen = new Set(normalizeAppList(scraped).map((a) => a.id));
+  const absent = known.reduce((n, a) => (seen.has(a.id) ? n : n + 1), 0);
+  return absent > Math.max(floor, known.length * maxMissingRatio);
 }
 
 /** For apps with "aws" in the name, steer the launch to a given AWS region:
