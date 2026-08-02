@@ -28,6 +28,7 @@ async function init() {
   // silently unbound and it looks like the apps are gone.
   wireControls();
   populateRegions();
+  showShortcut();
 
   // Load + heal: re-normalise stored apps once so legacy names saved before the
   // hyphen-spacing fix (e.g. "S-SBB -SAP") get cleaned up in place. Writes only
@@ -39,13 +40,13 @@ async function init() {
     });
   } catch (e) {
     apps = await getApps().catch(() => []);
-    setStatus(`Could not read your apps: ${e?.message || e}`);
+    setStatus(`Could not read your apps: ${e?.message || e}`, 'error');
   }
   renderList();
   try {
     await loadSettings();
   } catch {
-    setStatus('Could not read your settings — using defaults.');
+    setStatus('Could not read your settings — using defaults.', 'error');
   }
 
   // Show the running version (read from the manifest, so it always matches).
@@ -72,6 +73,11 @@ function wireControls() {
   document.getElementById('fallback-search').addEventListener('change', onSettingChange);
   document.getElementById('aws-region').addEventListener('change', onSettingChange);
   document.getElementById('theme').addEventListener('change', onSettingChange);
+  document.getElementById('change-shortcut').addEventListener('click', onChangeShortcut);
+  statusEl.addEventListener('click', () => setStatus(''));
+  // Re-read the binding when you come back from the browser's shortcut page,
+  // so a key you just changed is reflected without a reload.
+  window.addEventListener('focus', showShortcut);
 
   // Keep the list in sync with storage: re-render when an import or the
   // background auto-sync changes the app list (so you never need to reload).
@@ -87,8 +93,66 @@ function wireControls() {
   });
 }
 
-function setStatus(msg) {
+// The launcher's own keyboard shortcut, as the BROWSER has it bound. Chrome
+// silently drops a suggested key another extension already claimed, so the
+// manifest's value is a wish, not a fact — always show what getAll() reports.
+async function showShortcut() {
+  const el = document.getElementById('shortcut');
+  let shortcut = '';
+  try {
+    const commands = await chrome.commands.getAll();
+    shortcut = commands.find((c) => c.name === '_execute_action')?.shortcut || '';
+  } catch {
+    /* commands API unavailable — fall through to the "not set" wording */
+  }
+  el.classList.toggle('unset', !shortcut);
+  if (!shortcut) {
+    el.textContent = 'no shortcut set yet';
+    return;
+  }
+  // Chrome reports "Ctrl+Shift+Space" but "⌘⇧Space" on macOS — one chip per
+  // key where there is a separator, one chip for the whole glyph run otherwise.
+  const keys = shortcut.split('+').filter(Boolean);
+  el.replaceChildren(
+    ...keys.flatMap((key, i) => {
+      const kbd = document.createElement('kbd');
+      kbd.textContent = key;
+      return i === 0 ? [kbd] : [document.createTextNode(' + '), kbd];
+    }),
+  );
+}
+
+async function onChangeShortcut() {
+  try {
+    // Extensions may open this page, but cannot pre-select their own row.
+    await chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
+  } catch {
+    setStatus('Change it in your browser’s extension-shortcut settings.', 'info');
+  }
+}
+
+const STATUS_FADE_MS = 4000;
+let statusTimer = null;
+
+/**
+ * Report something to the user. The page is as long as their app list, so a
+ * line parked under the list is a line nobody reads — this floats above it.
+ * A plain confirmation ('ok') clears itself; anything you might have to act on
+ * ('info' for a running/finished import, 'error') stays until it is replaced or
+ * clicked away.
+ * @param {string} msg
+ * @param {'info'|'ok'|'error'} [tone]
+ */
+function setStatus(msg, tone = 'info') {
+  clearTimeout(statusTimer);
+  statusTimer = null;
   statusEl.textContent = msg;
+  statusEl.dataset.tone = msg ? tone : '';
+  if (!msg || tone !== 'ok') return;
+  statusTimer = setTimeout(() => {
+    // Only clear what we put there: a newer message must not be swallowed.
+    if (statusEl.textContent === msg) setStatus('');
+  }, STATUS_FADE_MS);
 }
 
 // If the row being edited no longer exists in the current list (removed by a
@@ -282,7 +346,7 @@ async function onEditSave(oldId, name, url, keep, iconUrl) {
   // for a pinned ('manual') app no later sync would ever restore it.
   const updated = normalizeApp({ name, url, iconUrl, source: keep ? 'manual' : 'myapps' });
   if (!updated) {
-    setStatus('Enter a name and a valid https:// URL.');
+    setStatus('Enter a name and a valid https:// URL.', 'error');
     return;
   }
   // mutateApps re-reads the freshest list under a lock, so a background sync that
@@ -301,7 +365,10 @@ async function onEditSave(oldId, name, url, keep, iconUrl) {
     );
   });
   if (collision) {
-    setStatus('Another app already uses that URL — edit cancelled. Change the URL or Cancel.');
+    setStatus(
+      'Another app already uses that URL — edit cancelled. Change the URL or Cancel.',
+      'error',
+    );
     return; // keep the row in edit mode so it can be fixed
   }
   editingId = null;
@@ -312,6 +379,7 @@ async function onEditSave(oldId, name, url, keep, iconUrl) {
     keep
       ? `Saved “${updated.name}”.`
       : `Saved “${updated.name}” — still linked to My Apps, so a future sync may overwrite it.`,
+    'ok',
   );
 }
 
@@ -321,19 +389,19 @@ async function onAdd(e) {
   const url = document.getElementById('url').value;
   const app = normalizeApp({ name, url, source: 'manual' });
   if (!app) {
-    setStatus('Enter a name and a valid https:// URL.');
+    setStatus('Enter a name and a valid https:// URL.', 'error');
     return;
   }
   apps = await mutateApps((current) => mergeApps(current, [app]));
   e.target.reset();
   renderList();
-  setStatus(`Added “${app.name}”.`);
+  setStatus(`Added “${app.name}”.`, 'ok');
 }
 
 async function onDelete(id) {
   apps = await mutateApps((current) => current.filter((a) => a.id !== id));
   renderList();
-  setStatus('Removed.');
+  setStatus('Removed.', 'ok');
 }
 
 async function onClear() {
@@ -344,7 +412,7 @@ async function onClear() {
   editDraft = null;
   apps = await mutateApps(() => []);
   renderList();
-  setStatus('Removed all apps.');
+  setStatus('Removed all apps.', 'ok');
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -589,7 +657,7 @@ async function onImportMyApps() {
     .catch(() => false);
   if (!granted) {
     btn.disabled = false;
-    setStatus('Permission denied — cannot read My Apps.');
+    setStatus('Permission denied — cannot read My Apps.', 'error');
     return;
   }
 
@@ -617,7 +685,10 @@ async function onImportMyApps() {
     } = await withMyAppsWindow((tabId) => collectAllApps(tabId, showImportProgress)));
   } catch (e) {
     renderList(); // drop the progress placeholder — the list must stay visible
-    setStatus(`Import failed: ${e?.message || e}. Open My Apps once to sign in, then try again.`);
+    setStatus(
+      `Import failed: ${e?.message || e}. Open My Apps once to sign in, then try again.`,
+      'error',
+    );
     return;
   } finally {
     btn.disabled = false;
@@ -629,6 +700,7 @@ async function onImportMyApps() {
     renderList();
     setStatus(
       'No apps found. Make sure you are signed in to My Apps (open it once in this browser), then click Import again.',
+      'error',
     );
     return;
   }
@@ -650,7 +722,7 @@ async function onImportMyApps() {
     );
   } catch (err) {
     renderList(); // ditto: never leave the user staring at "importing…"
-    setStatus(`Found ${best.length} app(s) but saving failed: ${err.message}`);
+    setStatus(`Found ${best.length} app(s) but saving failed: ${err.message}`, 'error');
     return;
   }
   dropStaleEdit(); // a complete reconcile may have removed the app being edited
@@ -688,7 +760,7 @@ async function onExport() {
   a.download = 'beeline-apps.json';
   a.click();
   URL.revokeObjectURL(url);
-  setStatus('Exported.');
+  setStatus('Exported.', 'ok');
 }
 
 async function onImportFile(e) {
@@ -698,7 +770,7 @@ async function onImportFile(e) {
   try {
     parsed = JSON.parse(await file.text());
   } catch {
-    setStatus('That file is not valid JSON.');
+    setStatus('That file is not valid JSON.', 'error');
     e.target.value = '';
     return;
   }
@@ -706,10 +778,10 @@ async function onImportFile(e) {
     const before = apps.length;
     apps = await mutateApps((current) => mergeApps(current, Array.isArray(parsed) ? parsed : []));
     renderList();
-    setStatus(`Imported ${apps.length - before} new app(s) from file.`);
+    setStatus(`Imported ${apps.length - before} new app(s) from file.`, 'ok');
   } catch (err) {
     // A storage failure is NOT a malformed file — say which one it was.
-    setStatus(`Could not save the imported apps: ${err.message}`);
+    setStatus(`Could not save the imported apps: ${err.message}`, 'error');
   } finally {
     e.target.value = '';
   }
@@ -815,7 +887,7 @@ async function onBookmarksToggle(e) {
   const box = e.target;
   if (!settingsLoaded) {
     box.checked = !box.checked; // put the box back: nothing was saved
-    setStatus('Settings are not loaded yet — reload the page before changing them.');
+    setStatus('Settings are not loaded yet — reload the page before changing them.', 'error');
     return;
   }
   // Disable for the duration: the page stays interactive while the permission
@@ -827,7 +899,7 @@ async function onBookmarksToggle(e) {
       const granted = await chrome.permissions.request(BOOKMARKS_PERMISSION).catch(() => false);
       if (!granted) {
         box.checked = false;
-        setStatus('Bookmark access denied — the launcher keeps searching your apps only.');
+        setStatus('Bookmark access denied — the launcher keeps searching your apps only.', 'error');
         return;
       }
     } else {
@@ -864,7 +936,7 @@ async function onSettingChange() {
   // read (or have not arrived yet). Writing it back would silently reset every
   // other setting to a default the user never chose.
   if (!settingsLoaded) {
-    setStatus('Settings are not loaded yet — reload the page before changing them.');
+    setStatus('Settings are not loaded yet — reload the page before changing them.', 'error');
     return;
   }
   const theme = document.getElementById('theme').value;
@@ -877,11 +949,11 @@ async function onSettingChange() {
     includeBookmarks: document.getElementById('include-bookmarks').checked,
   });
   applyTheme(theme); // reflect the new theme on this page immediately
-  setStatus('Settings saved.');
+  setStatus('Settings saved.', 'ok');
 }
 
 try {
   await init();
 } catch (e) {
-  setStatus(`Beeline could not start: ${e?.message || e}. Reload the page.`);
+  setStatus(`Beeline could not start: ${e?.message || e}. Reload the page.`, 'error');
 }

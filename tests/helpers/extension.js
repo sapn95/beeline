@@ -114,6 +114,9 @@ export function makeChrome({
       create: vi.fn(),
       onAlarm: makeEvent(),
     },
+    commands: {
+      getAll: vi.fn(async () => [{ name: '_execute_action', shortcut: 'Ctrl+Shift+Space' }]),
+    },
     search: { query: vi.fn() },
   };
 }

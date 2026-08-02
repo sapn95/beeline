@@ -27,8 +27,9 @@ const APPS = [
 ];
 
 /** Boot the options page with a given storage state. */
-async function mount({ apps = APPS, settings = {}, chromeOptions = {} } = {}) {
+async function mount({ apps = APPS, settings = {}, chromeOptions = {}, mutate } = {}) {
   globalThis.chrome = makeChrome({ local: { apps }, sync: { settings }, ...chromeOptions });
+  if (mutate) mutate(globalThis.chrome); // patch the fake API before the page reads it
   loadPage('options');
   vi.resetModules();
   await import('../src/options/options.js');
@@ -195,6 +196,86 @@ describe('initial render', () => {
     });
     expect(document.documentElement.dataset.theme).toBe('light');
     expect(status()).toBe('Settings saved.');
+  });
+});
+
+describe('the status toast', () => {
+  /** Submit the add form with nothing in it — the shortest path to an error. */
+  const badSubmit = async () => {
+    $('add-form').dispatchEvent(new Event('submit'));
+    await flush();
+  };
+
+  it('clears a plain confirmation on its own but keeps anything actionable', async () => {
+    vi.useFakeTimers();
+    await mount();
+    $('theme').dispatchEvent(new Event('change'));
+    await flush();
+    expect(status()).toBe('Settings saved.');
+    expect($('status').dataset.tone).toBe('ok');
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(status()).toBe(''); // gone, so it never sits there stale
+
+    // An error is a different matter: it stays until replaced or clicked away.
+    await badSubmit();
+    expect($('status').dataset.tone).toBe('error');
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(status()).toBe('Enter a name and a valid https:// URL.');
+  });
+
+  it('can be dismissed with a click', async () => {
+    await mount();
+    await badSubmit();
+    expect(status()).not.toBe('');
+    await click($('status'));
+    expect(status()).toBe('');
+    expect($('status').dataset.tone).toBe('');
+  });
+});
+
+describe('the launcher shortcut', () => {
+  it('shows the binding the browser actually has', async () => {
+    await mount();
+    expect([...$('shortcut').querySelectorAll('kbd')].map((k) => k.textContent)).toEqual([
+      'Ctrl',
+      'Shift',
+      'Space',
+    ]);
+  });
+
+  it('says so when no key is bound, rather than repeating the manifest', async () => {
+    // Chrome drops a suggested key another extension already owns — claiming it
+    // works would send the user hunting for a shortcut that does nothing.
+    await mount({
+      chromeOptions: {},
+      mutate: (c) => {
+        c.commands.getAll = vi.fn(async () => [{ name: '_execute_action', shortcut: '' }]);
+      },
+    });
+    expect($('shortcut').textContent).toBe('no shortcut set yet');
+    expect($('shortcut').querySelector('kbd')).toBeNull();
+  });
+
+  it('opens the browser page where the key is rebound', async () => {
+    await mount();
+    await click($('change-shortcut'));
+    expect(globalThis.chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'chrome://extensions/shortcuts',
+    });
+  });
+
+  it('explains where to look when that page cannot be opened', async () => {
+    // Firefox: an extension may not navigate to a privileged page.
+    await mount({
+      mutate: (c) => {
+        c.tabs.create = vi.fn(async () => {
+          throw new Error('Access denied');
+        });
+      },
+    });
+    await click($('change-shortcut'));
+    expect(status()).toMatch(/extension-shortcut settings/);
   });
 });
 
