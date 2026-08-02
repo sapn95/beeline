@@ -298,8 +298,36 @@ describe('the launcher shortcut', () => {
     ]);
   });
 
+  it('uses the Firefox API instead of a URL Firefox will not open', async () => {
+    // Firefox refuses to navigate to chrome://extensions/shortcuts — the button
+    // used to raise a toast and go nowhere. It has its own API for this.
+    const openShortcutSettings = vi.fn(async () => {});
+    await mount({
+      mutate: (c) => {
+        c.runtime.getURL = vi.fn((p) => `moz-extension://beeline/${p}`);
+        c.commands.openShortcutSettings = openShortcutSettings;
+      },
+    });
+    await click($('change-shortcut'));
+    expect(openShortcutSettings).toHaveBeenCalled();
+    expect(globalThis.chrome.tabs.create).not.toHaveBeenCalled();
+    expect(status()).toBe('');
+  });
+
+  it('names the clicks on a Firefox too old for that API', async () => {
+    // No openShortcutSettings() and no page it may navigate to: saying exactly
+    // where to click is all that is left.
+    await mount({
+      mutate: (c) => {
+        c.runtime.getURL = vi.fn((p) => `moz-extension://beeline/${p}`);
+      },
+    });
+    await click($('change-shortcut'));
+    expect(globalThis.chrome.tabs.create).not.toHaveBeenCalled(); // never on Firefox
+    expect(status()).toMatch(/about:addons.*Manage Extension Shortcuts/);
+  });
+
   it('explains where to look when that page cannot be opened', async () => {
-    // Firefox: an extension may not navigate to a privileged page.
     await mount({
       mutate: (c) => {
         c.tabs.create = vi.fn(async () => {

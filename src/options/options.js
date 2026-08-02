@@ -134,13 +134,43 @@ async function showShortcut() {
   );
 }
 
-async function onChangeShortcut() {
+/** The Firefox build, told apart by its own extension origin — no permission. */
+function isFirefox() {
   try {
-    // Extensions may open this page, but cannot pre-select their own row.
-    await chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
+    return chrome.runtime.getURL('/').startsWith('moz-extension://');
   } catch {
-    setStatus('Change it in your browser’s extension-shortcut settings.', 'info');
+    return false; // no runtime API at all: treat it as the Chrome build
   }
+}
+
+async function onChangeShortcut() {
+  // The two browsers each solve this their own way and neither implements the
+  // other's: Firefox has an API and flatly refuses to navigate to a privileged
+  // page, Chrome has the page but not the API. Reaching for the URL on Firefox
+  // is what made this button do nothing there but raise a toast.
+  const firefox = isFirefox();
+  const commands = globalThis.browser?.commands ?? globalThis.chrome?.commands;
+  try {
+    if (commands?.openShortcutSettings) {
+      await commands.openShortcutSettings(); // Firefox: about:addons, right section
+      return;
+    }
+    if (!firefox) {
+      // Extensions may open this page, but cannot pre-select their own row.
+      await chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
+      return;
+    }
+  } catch {
+    /* fall through and say where to click instead */
+  }
+  // Older Firefox has no openShortcutSettings(), so naming the clicks is all
+  // that is left. Vague wording would send them hunting through the settings.
+  setStatus(
+    firefox
+      ? 'Change it in about:addons → the gear icon → Manage Extension Shortcuts.'
+      : 'Change it in your browser’s extension-shortcut settings.',
+    'info',
+  );
 }
 
 const STATUS_FADE_MS = 4000;
