@@ -271,7 +271,9 @@ kbd {
 
 .status[data-tone='error'] {
   background: var(--danger);
-  color: #fff;
+  /* --bg, not #fff: in dark mode --danger is a light red, where white text
+     would barely be readable. */
+  color: var(--bg);
 }
 
 .status[data-tone='error']::before {

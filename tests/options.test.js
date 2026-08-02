@@ -15,6 +15,7 @@ import {
   rebuildInjected,
   flush,
   click,
+  press,
 } from './helpers/extension.js';
 import { appId } from '../src/lib/apps.js';
 
@@ -232,6 +233,16 @@ describe('the status toast', () => {
     expect(status()).toBe('');
     expect($('status').dataset.tone).toBe('');
   });
+
+  it('can be dismissed from the keyboard', async () => {
+    // <output> is a live region, not a control, so it is deliberately not in
+    // the tab order — Esc is what keeps it dismissable without a mouse.
+    await mount();
+    await badSubmit();
+    press(document, 'Escape');
+    await flush();
+    expect(status()).toBe('');
+  });
 });
 
 describe('the launcher shortcut', () => {
@@ -263,6 +274,28 @@ describe('the launcher shortcut', () => {
     expect(globalThis.chrome.tabs.create).toHaveBeenCalledWith({
       url: 'chrome://extensions/shortcuts',
     });
+  });
+
+  it('renders the newest binding when two reads overlap', async () => {
+    // init() and the on-focus refresh can be in flight together. If the slower
+    // one painted last, the page would show a key that is no longer bound.
+    let answerFirst;
+    await mount({
+      mutate: (c) => {
+        c.commands.getAll = vi.fn(() => new Promise((resolve) => (answerFirst = resolve)));
+      },
+    });
+    globalThis.chrome.commands.getAll = vi.fn(async () => [
+      { name: '_execute_action', shortcut: 'Alt+K' },
+    ]);
+    window.dispatchEvent(new Event('focus')); // second read, answers first
+    await flush();
+    answerFirst([{ name: '_execute_action', shortcut: 'Ctrl+Shift+Space' }]);
+    await flush();
+    expect([...$('shortcut').querySelectorAll('kbd')].map((k) => k.textContent)).toEqual([
+      'Alt',
+      'K',
+    ]);
   });
 
   it('explains where to look when that page cannot be opened', async () => {
