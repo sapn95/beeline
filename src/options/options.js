@@ -75,6 +75,12 @@ function wireControls() {
   document.getElementById('theme').addEventListener('change', onSettingChange);
   document.getElementById('change-shortcut').addEventListener('click', onChangeShortcut);
   statusEl.addEventListener('click', () => setStatus(''));
+  // Esc dismisses it as well. <output> is a live region rather than a control,
+  // so keeping it out of the tab order costs a keyboard user their way out —
+  // this gives it back without turning every message into a focus stop.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') setStatus('');
+  });
   // Re-read the binding when you come back from the browser's shortcut page,
   // so a key you just changed is reflected without a reload.
   window.addEventListener('focus', showShortcut);
@@ -96,8 +102,11 @@ function wireControls() {
 // The launcher's own keyboard shortcut, as the BROWSER has it bound. Chrome
 // silently drops a suggested key another extension already claimed, so the
 // manifest's value is a wish, not a fact — always show what getAll() reports.
+let shortcutRead = 0;
+
 async function showShortcut() {
   const el = document.getElementById('shortcut');
+  const read = ++shortcutRead;
   let shortcut = '';
   try {
     const commands = await chrome.commands.getAll();
@@ -105,6 +114,9 @@ async function showShortcut() {
   } catch {
     /* commands API unavailable — fall through to the "not set" wording */
   }
+  // The page-load read and the on-focus one can be in flight together; whichever
+  // answers last must not be able to paint over a fresher binding.
+  if (read !== shortcutRead) return;
   el.classList.toggle('unset', !shortcut);
   if (!shortcut) {
     el.textContent = 'no shortcut set yet';
