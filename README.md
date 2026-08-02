@@ -9,6 +9,8 @@ Runs on **Chrome** (and other Chromium browsers such as Edge, Brave and Vivaldi)
 
 Press **`Ctrl/Cmd` + `Shift` + `Space`**, type a few letters, hit **Enter** —
 the app opens through your existing SSO. No backend, no telemetry, no waiting.
+(The key is yours to change, and **Manage apps** shows the one your browser
+actually has bound.)
 
 > **Scope.** Beeline is an app _launcher_. It does **not** replicate Entra's
 > password vaulting / credential auto-fill — that backend is Microsoft-proprietary
@@ -40,12 +42,18 @@ the app opens through your existing SSO. No backend, no telemetry, no waiting.
   manual add, inline **edit**, and JSON import/export.
 - 🔄 **Stays in sync** — re-scrapes whenever you visit My Apps (and on a periodic
   background check), adding new apps and removing ones you no longer have; your
-  manually-added apps are always kept.
+  manually-added apps are always kept. A read that did not make it to the end of
+  the (virtualised) grid can only ever add — nothing is removed on a partial
+  view of your portal.
 - 🔖 **Bookmarks too — if you want** — switch on _"Also search this browser's
   bookmarks"_ in the settings and your bookmarks join the search results
   (labelled, and ranked just below an app of the same relevance). Off by
   default; the `bookmarks` permission is only requested when you switch it on,
   and handed back when you switch it off.
+- 🖼️ **Icons that are actually there** — an imported tile brings its logo with
+  it; bookmarks, apps with no logo in your tenant, and apps you added by hand
+  borrow the icon your browser has already cached locally, and fall back to the
+  app's initial when even that is empty.
 - 🔎 **Fallback search** — when nothing matches what you typed, hit Enter to
   search My Apps or your default web search engine (configurable in settings).
 - 🔒 **Private by design** — everything stays in your browser; no telemetry. Host
@@ -108,8 +116,11 @@ deep link behave identically.
 3. Open the launcher with the toolbar button or **`Ctrl/Cmd` + `Shift` +
    `Space`**, type, and press **Enter**.
 
-Settings let you choose new-tab vs. current-tab and whether the popup closes
-after launching.
+Settings cover new-tab vs. current-tab, whether the popup closes after
+launching, the fallback search, an AWS region to deep-link consoles into, the
+theme (auto / light / dark), and whether bookmarks join the search. The same
+page shows the launcher's current keyboard shortcut and links to where the
+browser lets you rebind it.
 
 ## Development
 
@@ -166,8 +177,9 @@ generate the credentials — is in [docs/publishing.md](docs/publishing.md).
 Beeline stores your app list and launch counts in local browser storage, and a
 few small settings in browser sync storage (Chrome sync / Firefox Sync). It
 makes **no external network calls** of its own and contains **no analytics or
-telemetry**. The only host access is
-`myapplications.microsoft.com`, used on demand to import/sync your own app tiles.
+telemetry** — site icons come from the browser's own local cache, not from a
+favicon service. The only host access is `myapplications.microsoft.com`, used on
+demand to import/sync your own app tiles.
 Full details are in [PRIVACY.md](PRIVACY.md).
 
 ## Conventions
