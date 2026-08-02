@@ -63,9 +63,7 @@ console.log(
 );
 
 if (zip) {
-  const zipName = firefox
-    ? `myapps-launcher-firefox-v${pkg.version}.zip`
-    : `myapps-launcher-v${pkg.version}.zip`;
+  const zipName = firefox ? `beeline-firefox-v${pkg.version}.zip` : `beeline-v${pkg.version}.zip`;
   rmSync(join(ROOT, zipName), { force: true });
   // Zip the *contents* of the out dir so manifest.json sits at the archive root.
   execFileSync('zip', ['-r', '-X', join(ROOT, zipName), '.', '-x', '*.DS_Store'], {

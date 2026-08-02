@@ -269,6 +269,14 @@ describe('applySyncRead', () => {
     const { removed } = applySyncRead([stored(1)], [], { strikes: 1 });
     expect(removed.map((a) => a.name)).toEqual(['App 1']);
   });
+
+  it('clamps a threshold no stored counter could ever reach', () => {
+    // normalizeApp caps `missing` at 9, so asking for 11 would mean the app is
+    // never removed at all — a silent no-op instead of a loud mistake.
+    let apps = [stored(1)];
+    for (let i = 0; i < 12; i++) apps = applySyncRead(apps, [], { strikes: 11 }).apps;
+    expect(apps).toEqual([]);
+  });
 });
 
 describe('isSuspectRead', () => {

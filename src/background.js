@@ -124,13 +124,21 @@ async function syncTab(tabId) {
   // A background tab's My Apps SPA throttles or skips rendering its virtualised
   // grid entirely, so a walk of it can come back short through no fault of the
   // user's — exactly the read that must never be allowed to remove anything.
-  const foreground = await chrome.tabs
-    .get(tabId)
-    .then((t) => !!t?.active)
-    .catch(() => false);
+  const onScreen = () =>
+    chrome.tabs
+      .get(tabId)
+      .then((t) => !!t?.active)
+      .catch(() => false);
+  const wasForeground = await onScreen();
 
   const scraped = await collectTilesFromTab(tabId);
   if (!scraped || scraped.length === 0) return;
+
+  // Asked again AFTER the walk, because the walk owns the tab for up to
+  // READ_BUDGET_MS and the user is free to switch away in the middle of it. A
+  // tab that started in front and finished behind was throttled for part of the
+  // read, which is exactly the short read this rail exists to distrust.
+  const foreground = wasForeground && (await onScreen());
 
   // When a read may remove, on top of the non-empty check above:
   //   1. the tab was in the foreground, so the grid really rendered;

@@ -170,6 +170,10 @@ function unmarked(app) {
  * @returns {{apps: Array, removed: Array}} the new list, and what fell out of it.
  */
 export function applySyncRead(existing, scraped, { strikes = 2 } = {}) {
+  // The count has to be reachable: normalizeApp caps a stored `missing` at 9, so
+  // a threshold above that would never be met and the app would simply never be
+  // removed — a silent no-op rather than a loud mistake. Clamp instead.
+  const limit = Math.min(Math.max(Math.trunc(strikes) || 1, 1), 9);
   const incoming = normalizeAppList(scraped).map((a) => ({ ...a, source: 'myapps' }));
   const seen = new Set(incoming.map((a) => a.id));
   const apps = [];
@@ -180,7 +184,7 @@ export function applySyncRead(existing, scraped, { strikes = 2 } = {}) {
       continue;
     }
     const strike = (app.missing ?? 0) + 1;
-    if (strike >= strikes) removed.push(app);
+    if (strike >= limit) removed.push(app);
     else apps.push({ ...app, missing: strike });
   }
   return { apps, removed };

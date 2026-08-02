@@ -62,7 +62,7 @@ const server = http.createServer(async (req, res) => {
     console.log(`\n=== CHROME_REFRESH_TOKEN ===\n${data.refresh_token}\n`);
     console.log('Store it with:');
     console.log(
-      `  gh secret set CHROME_REFRESH_TOKEN --repo sapn95/myapps-launcher --body "${data.refresh_token}"`,
+      `  gh secret set CHROME_REFRESH_TOKEN --repo sapn95/beeline --body "${data.refresh_token}"`,
     );
     server.close();
   } catch (err) {

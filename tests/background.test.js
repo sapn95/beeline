@@ -206,6 +206,23 @@ describe('removing apps that are gone from My Apps', () => {
     expect(stored('Gone').missing).toBeUndefined();
   });
 
+  it('only ever adds when you switch away mid-read', async () => {
+    // The walk owns the tab for up to 90s. A tab that started in front and
+    // finished behind was throttled for part of the read, so what it did not
+    // find says nothing — asking only once, before the walk, would miss this.
+    const c = await boot({ local: { apps: [...EXISTING, GONE] } });
+    let active = true;
+    c.tabs.get = vi.fn(async () => {
+      const answer = { status: 'complete', active };
+      active = false; // in front when the walk starts, behind when it ends
+      return answer;
+    });
+    addTile('App 1', '1');
+    await visit(c);
+    expect(stored('Gone').missing).toBeUndefined();
+    expect(stored('App 1')).toBeDefined();
+  });
+
   it('only ever adds when the tab is not the one on screen', async () => {
     // A background tab's My Apps throttles rendering, so a short read there says
     // nothing about what the user still has.
@@ -317,16 +334,19 @@ describe('safety rules', () => {
     expect(c.storage.local.set).not.toHaveBeenCalled();
   });
 
-  /** Make one of the two injections resolve 20s late, the other run for real. */
-  function slowInjection(c, slow) {
+  /**
+   * Make one of the two injections resolve 20s late, the other run for real.
+   * `late` is that injection's own valid answer shape — a tile array for the
+   * scrape, a remaining-distance number for the scroll — so a test can only
+   * pass because the 8s timeout threw the answer away, never because the answer
+   * was malformed and would have been ignored anyway.
+   */
+  function slowInjection(c, slow, late = [{ name: 'Late', url: 'https://late.example.com/' }]) {
     const run = c.scripting.executeScript;
     c.scripting.executeScript = vi.fn((args) => {
       if (args.func.name !== slow) return run(args);
       return new Promise((resolve) => {
-        setTimeout(
-          () => resolve([{ result: [{ name: 'Late', url: 'https://late.example.com/' }] }]),
-          20000,
-        );
+        setTimeout(() => resolve([{ result: late }]), 20000);
       });
     });
   }
@@ -347,8 +367,9 @@ describe('safety rules', () => {
     // A scroll that never answers means the walk cannot advance, so the read
     // only ever sees the first slice of a virtualised grid. That is a partial
     // read by definition — it is allowed to add the tile it really did see, but
-    // must not conclude anything about the apps it never got to.
-    slowInjection(c, 'scrollMyAppsStepInPage');
+    // must not conclude anything about the apps it never got to. 600 is a
+    // perfectly valid scroll answer, so only the timeout explains the stall.
+    slowInjection(c, 'scrollMyAppsStepInPage', 600);
     addTile('App 1', '1');
     await visit(c, 260000);
     expect(storedApps().map((a) => a.name)).toEqual(

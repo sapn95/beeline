@@ -112,9 +112,13 @@ export function accountHintFromApps(apps) {
 // virtualised inside an inner scroll panel, so we scroll the scrollable
 // ancestors OF THE TILES THEMSELVES (plus the window) — scoping to tile-bearing
 // scrollers stops an unrelated panel from holding the loop open forever.
-// Returns 0 once NOTHING can advance any further (the reliable "at the bottom"
-// signal, independent of trailing padding); otherwise the largest distance still
-// left to the bottom.
+// Three distinct answers, and a caller MUST keep them apart:
+//   0    — nothing anywhere can advance any further. The reliable "at the
+//          bottom" signal, independent of trailing padding.
+//   >0   — the largest distance any scroller still has left to the bottom.
+//   null — UNKNOWN: nothing advanced, yet a scroller we can see still claims
+//          room. Never treat this as 0; a single virtualised slice would then
+//          pass as a complete read and a reconcile would delete the rest.
 export function scrollMyAppsStepInPage() {
   const step = Math.round(window.innerHeight * 0.8) || 600;
   const overflows = (el, min) =>

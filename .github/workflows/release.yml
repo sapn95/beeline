@@ -211,9 +211,9 @@ jobs:
           # softprops/action-gh-release@v2, which still bundled Node 20.
           # Idempotent: update assets if the release already exists, else create.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" myapps-launcher*.zip --clobber
+            gh release upload "$TAG" beeline*.zip --clobber
           else
-            gh release create "$TAG" myapps-launcher*.zip --generate-notes
+            gh release create "$TAG" beeline*.zip --generate-notes
           fi
 
       - name: Detect Chrome Web Store secrets
@@ -246,12 +246,12 @@ jobs:
         run: |
           set -uo pipefail
           # Exactly one, or stop: passing two paths as one --source would upload junk.
-          count="$(ls myapps-launcher-v*.zip 2>/dev/null | wc -l || true)"
+          count="$(ls beeline-v*.zip 2>/dev/null | wc -l || true)"
           if [ "$count" -ne 1 ]; then
             echo "::error::expected exactly one Chrome package, found $count"
             exit 1
           fi
-          ZIP="$(ls myapps-launcher-v*.zip)"
+          ZIP="$(ls beeline-v*.zip)"
           echo "Uploading $ZIP"
           if ! out="$(npx --yes chrome-webstore-upload-cli@3 upload \
             --source "$ZIP" --extension-id "$EXTENSION_ID" --client-id "$CLIENT_ID" \

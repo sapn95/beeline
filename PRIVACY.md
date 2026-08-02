@@ -94,5 +94,5 @@ project repository, with a new effective date.
 ## Contact
 
 Questions or concerns: please open an issue at
-<https://github.com/sapn95/myapps-launcher/issues>, or use the publisher contact
+<https://github.com/sapn95/beeline/issues>, or use the publisher contact
 email shown on the extension's Chrome Web Store listing.

@@ -20,7 +20,7 @@ tagging a version ships a new release automatically.
 ### 2. First manual upload (creates the item + its ID)
 
 ```bash
-npm run package          # produces myapps-launcher-v0.1.0.zip
+npm run package          # produces beeline-v0.1.0.zip
 ```
 
 - In the dashboard, **New item → upload** the zip.
@@ -187,7 +187,7 @@ purpose, because they are legal statements by the publisher.
 
 The same source also builds a Firefox add-on. `npm run build:firefox` emits
 `dist-firefox/` (event-page background + a `browser_specific_settings.gecko`
-id), and `npm run package` produces `myapps-launcher-firefox-vX.Y.Z.zip`
+id), and `npm run package` produces `beeline-firefox-vX.Y.Z.zip`
 alongside the Chrome zip.
 
 **Local testing:** `about:debugging#/runtime/this-firefox` → **Load Temporary

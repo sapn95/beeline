@@ -88,8 +88,8 @@ store screenshot lives in [docs/store/](docs/store/screenshot-1280x800.png).
 ### From source (development)
 
 ```bash
-git clone git@github.com:sapn95/myapps-launcher.git
-cd myapps-launcher
+git clone git@github.com:sapn95/beeline.git
+cd beeline
 npm install
 npm run build           # -> dist/          (Chrome / Chromium)
 npm run build:firefox   # -> dist-firefox/  (Firefox)
@@ -136,7 +136,7 @@ npm run test:coverage   # vitest + coverage gate (all of src/)
 npm run icons           # regenerate src/icons/*.png
 npm run build           # -> dist/          (Chrome)
 npm run build:firefox   # -> dist-firefox/  (Firefox)
-npm run package         # both builds + myapps-launcher[-firefox]-vX.Y.Z.zip
+npm run package         # both builds + beeline[-firefox]-vX.Y.Z.zip
 npm run ci              # lint + format:check + coverage + package (both browsers)
 ```
 
