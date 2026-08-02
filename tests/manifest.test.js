@@ -9,7 +9,9 @@ describe('manifest', () => {
   });
 
   it('requests only least-privilege permissions', () => {
-    expect(manifest.permissions).toEqual(['storage', 'scripting', 'alarms', 'search']);
+    // "favicon" reads Chrome's LOCAL icon cache to fill in apps and bookmarks
+    // that carry no logo. It grants no page or network access.
+    expect(manifest.permissions).toEqual(['storage', 'scripting', 'alarms', 'search', 'favicon']);
     // No broad, always-on host access — My Apps access is requested on demand.
     expect(manifest.host_permissions).toBeUndefined();
     expect(manifest.optional_host_permissions).toContain('https://myapplications.microsoft.com/*');

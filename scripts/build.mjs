@@ -46,6 +46,10 @@ if (firefox) {
     },
     gecko_android: { strict_min_version: '142.0' },
   };
+  // "favicon" (and its _favicon/ endpoint) is Chrome-only. Shipping an unknown
+  // permission just earns an AMO warning, and the popup already falls back to
+  // the letter tile when the image does not load.
+  manifest.permissions = manifest.permissions.filter((p) => p !== 'favicon');
 }
 
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);

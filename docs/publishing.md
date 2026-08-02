@@ -38,6 +38,11 @@ npm run package          # produces myapps-launcher-v0.1.0.zip
     Bookmarks are read live while the popup is open, are never stored by the
     extension, and are never transmitted anywhere. Unticking the setting calls
     `chrome.permissions.remove` and gives the permission back."
+  - `favicon` — "Used to show each entry's site icon in the launcher popup.
+    Apps imported from My Apps that have no logo, bookmarks, and hand-added apps
+    carry no icon of their own, so the extension reads the icon Chrome has
+    already cached locally via the `_favicon/` endpoint. This makes no network
+    request, reads no page content, and nothing is transmitted anywhere."
 - Submit for review and note the **Item ID** (32 lowercase letters) — that's
   `CHROME_EXTENSION_ID`.
 

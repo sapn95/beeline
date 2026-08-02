@@ -71,11 +71,50 @@ describe('rendering', () => {
     expect(selectedIndex()).toBe(0);
   });
 
-  it('renders an icon when the app has one, else its initial', async () => {
+  it('renders the scraped icon when the app has one', async () => {
     await mount();
-    const [jira, , confluence] = rows();
-    expect(jira.querySelector('.icon').textContent).toBe('J');
+    const [, , confluence] = rows();
     expect(confluence.querySelector('img').src).toBe('https://cdn.example.com/c.png');
+  });
+
+  it("borrows the browser's cached favicon for an app with no logo", async () => {
+    // chrome.bookmarks carries no icon and hand-added apps have none either, so
+    // the local favicon store fills the gap — no network request.
+    await mount();
+    const src = rows()[0].querySelector('img').src;
+    expect(src).toContain('/_favicon/');
+    expect(src).toContain(`pageUrl=${encodeURIComponent('https://jira.example.com/')}`);
+    expect(src).toContain('size=32');
+  });
+
+  it('keeps the initial for My Apps links, whose favicon is the same for all', async () => {
+    await mount({
+      chrome: {
+        local: {
+          apps: [
+            {
+              id: 'm1',
+              name: 'SAP Gateway',
+              url: 'https://launcher.myapps.microsoft.com/api/signin/abc',
+              source: 'myapps',
+            },
+          ],
+        },
+      },
+    });
+    const icon = rows()[0].querySelector('.icon');
+    expect(icon.querySelector('img')).toBeNull();
+    expect(icon.textContent).toBe('S');
+  });
+
+  it('falls back to the initial when the favicon does not load', async () => {
+    // Firefox has no _favicon/ endpoint, and Chrome has nothing cached for a
+    // page never visited — a broken image would be worse than a letter.
+    await mount();
+    const icon = rows()[0].querySelector('.icon');
+    icon.querySelector('img').dispatchEvent(new Event('error'));
+    expect(icon.querySelector('img')).toBeNull();
+    expect(icon.textContent).toBe('J');
   });
 
   it('shows the empty state when there are no apps', async () => {
