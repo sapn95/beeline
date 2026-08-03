@@ -241,8 +241,11 @@ jobs:
             # NEWER than the dispatched ones, so protection reads the required
             # context as pending and the PR would never go green on its own.
             # Release them; that is what `actions: write` is here for.
-            for run in $(gh run list --branch "$BRANCH" --json databaseId,status \
-              -q '.[] | select(.status == "action_required") | .databaseId'); do
+            # A held run reports status=completed with CONCLUSION=action_required,
+            # so both fields have to be looked at — matching on status alone
+            # silently finds nothing and the loop waits out its whole budget.
+            for run in $(gh run list --branch "$BRANCH" --json databaseId,status,conclusion \
+              -q '.[] | select(.status == "action_required" or .conclusion == "action_required") | .databaseId'); do
               echo "approving held run $run"
               gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$run/approve" >/dev/null || true
             done
