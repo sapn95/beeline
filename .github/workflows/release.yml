@@ -36,6 +36,8 @@ concurrency:
 permissions:
   contents: write
   issues: write # a blocked store publish opens/closes a tracking issue
+  pull-requests: write # main is protected: the bump lands through a PR
+  actions: write # …whose required checks this workflow has to dispatch itself
 
 jobs:
   release:
@@ -194,11 +196,64 @@ jobs:
         if: steps.plan.outputs.proceed == 'true'
         run: npx --yes web-ext@10 lint --source-dir=dist-firefox --warnings-as-errors=false
 
-      - name: Push the release commit and tag
+      # `main` is a protected branch: pull request required, plus the three CI
+      # contexts. Admins are exempt, the GITHUB_TOKEN is not — so the bot cannot
+      # push the version bump straight to main and takes the same road as a
+      # person would. It may still MERGE its own PR: protection asks for zero
+      # approvals, so green checks are the whole gate.
+      - name: Land the release commit through a pull request
         if: steps.bump.outputs.tag != ''
-        # --atomic: without it a rejected branch update still pushes the tag,
-        # leaving an orphan that wedges every later release on "tag exists".
-        run: git push --atomic --follow-tags origin HEAD:"${GITHUB_REF_NAME}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.bump.outputs.tag }}
+          BASE: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          BRANCH="release/$TAG"
+          # The TAG is deliberately NOT pushed here. A squash merge rewrites the
+          # commit, so a tag pointing at the branch would name a SHA that never
+          # reaches main. It is created on the merged commit further down.
+          git push --force-with-lease origin "HEAD:refs/heads/$BRANCH"
+
+          if ! PR="$(gh pr view "$BRANCH" --json number -q .number 2>/dev/null)"; then
+            gh pr create --base "$BASE" --head "$BRANCH" \
+              --title "chore(release): ${TAG#v}" \
+              --body "Automated version bump for $TAG. Merged by the release workflow once the required checks pass."
+            PR="$(gh pr view "$BRANCH" --json number -q .number)"
+          fi
+          echo "Release PR #$PR on $BRANCH"
+
+          # Neither the push above nor the PR triggers a run: GitHub suppresses
+          # workflow events caused by the GITHUB_TOKEN, so the required contexts
+          # would sit "expected" forever. workflow_dispatch is the one documented
+          # exception, and a dispatched run reports its checks against the branch
+          # head — the very SHA the protection evaluates.
+          gh workflow run ci.yml --ref "$BRANCH"
+          gh workflow run codeql.yml --ref "$BRANCH"
+
+          # Wait for the required checks. gh's own --watch exits non-zero the
+          # moment a check is merely pending, so poll the mergeable state that
+          # the branch protection actually evaluates.
+          for i in $(seq 1 60); do
+            STATE="$(gh pr view "$PR" --json mergeStateStatus -q .mergeStateStatus)"
+            case "$STATE" in
+              CLEAN|UNSTABLE|HAS_HOOKS) break ;;
+              BLOCKED|BEHIND|UNKNOWN) echo "checks pending ($STATE), $i/60"; sleep 20 ;;
+              *) echo "::error::Release PR #$PR is $STATE — cannot merge."; exit 1 ;;
+            esac
+            if [ "$i" -eq 60 ]; then
+              echo "::error::Required checks did not finish in 20 minutes (last state: $STATE)."
+              exit 1
+            fi
+          done
+
+          # Squash, because the branch protection also requires linear history.
+          gh pr merge "$PR" --squash --delete-branch
+
+          # Tag the commit that actually landed, not the pre-squash one.
+          git fetch origin "$BASE"
+          git tag -f "$TAG" "origin/$BASE"
+          git push origin "refs/tags/$TAG"
 
       - name: GitHub release
         id: ghrelease

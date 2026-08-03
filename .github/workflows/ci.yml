@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Dispatchable so the release workflow can run the required checks on its
+  # own PR branch: a pull request opened with the GITHUB_TOKEN does not
+  # trigger `pull_request` runs, and workflow_dispatch is the documented
+  # exception to that rule.
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref to save minutes.
 concurrency:
