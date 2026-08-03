@@ -9,6 +9,8 @@ import {
   reconcileApps,
   applySyncRead,
   isSuspectRead,
+  legacyAppId,
+  migrateStats,
   withAwsRegion,
 } from '../src/lib/apps.js';
 
@@ -331,5 +333,85 @@ describe('the strike counter as stored data', () => {
     const marked = [{ name: 'A', url: 'https://a.example.com/', source: 'myapps', missing: 1 }];
     const out = reconcileApps(marked, [{ name: 'A', url: 'https://a.example.com/' }]);
     expect(out[0].missing).toBeUndefined();
+  });
+});
+
+describe('one app, two tiles', () => {
+  // Straight from a real portal: Planner listed twice, identical but for the
+  // locale the link was generated in. Before this, that was two apps forever.
+  const enGB = 'https://planner.cloud.microsoft/?auth_pvr=OrgId&auth_upn=me@example.com&mkt=en-GB';
+  const enUS = 'https://planner.cloud.microsoft/?auth_pvr=OrgId&auth_upn=me@example.com&mkt=en-US';
+
+  it('gives both the same id', () => {
+    expect(appId(enGB)).toBe(appId(enUS));
+  });
+
+  it('collapses them into one row', () => {
+    const out = normalizeAppList([
+      { name: 'Planner', url: enGB },
+      { name: 'Planner', url: enUS },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].url).toBe(enGB); // the first one seen keeps its launch URL
+  });
+
+  it('ignores the account, the entry point and the tracking tail', () => {
+    const bare = 'https://sbb-my.example.com/personal/me/x.aspx';
+    expect(appId(`${bare}?login_hint=me@example.com&source=waffle`)).toBe(appId(bare));
+    expect(appId(`${bare}?utm_source=office&utm_medium=app_launcher`)).toBe(appId(bare));
+    expect(appId(`${bare}?referrer=OfficeHome&referrerScenario=AppLauncher`)).toBe(appId(bare));
+    expect(appId(`${bare}?UPN=me@example.com&realm=example.ch`)).toBe(appId(bare));
+  });
+
+  it('does not care what order the parameters came in', () => {
+    expect(appId('https://x.example.com/?a=1&b=2')).toBe(appId('https://x.example.com/?b=2&a=1'));
+  });
+
+  it('still tells genuinely different apps apart', () => {
+    // The query IS the app on plenty of hosts — this is why noise is an
+    // allowlist and not "strip everything after the ?".
+    expect(appId('https://x.example.com/?app=alpha')).not.toBe(
+      appId('https://x.example.com/?app=beta'),
+    );
+    expect(appId('https://x.example.com/a')).not.toBe(appId('https://x.example.com/b'));
+    // A single-letter parameter is too generic to strip on a hunch.
+    expect(appId('https://x.example.com/?s=shell')).not.toBe(appId('https://x.example.com/'));
+  });
+
+  it('keeps the fragment out of identity but leaves the stored URL whole', () => {
+    const withHash = 'https://portal.example.com/?mkt=en-GB#/blade/one';
+    expect(appId(withHash)).toBe(appId('https://portal.example.com/#/blade/two'));
+    expect(normalizeApp({ name: 'P', url: withHash }).url).toContain('#/blade/one');
+  });
+});
+
+describe('migrateStats', () => {
+  const enGB = 'https://planner.cloud.microsoft/?mkt=en-GB';
+  const enUS = 'https://planner.cloud.microsoft/?mkt=en-US';
+  const app = (url) => ({ name: 'Planner', url, source: 'myapps' });
+
+  it('carries a launch history onto the new id', () => {
+    // Without this, changing what identity means would silently reset a ranking
+    // built up over months to plain alphabetical order.
+    const stats = { [legacyAppId(enGB)]: { count: 7, lastLaunched: 1000 } };
+    const out = migrateStats([app(enGB)], stats);
+    expect(out[appId(enGB)]).toEqual({ count: 7, lastLaunched: 1000 });
+    expect(out[legacyAppId(enGB)]).toBeUndefined();
+  });
+
+  it('adds up the two records that are now one app', () => {
+    const stats = {
+      [legacyAppId(enGB)]: { count: 4, lastLaunched: 1000 },
+      [legacyAppId(enUS)]: { count: 3, lastLaunched: 5000 },
+    };
+    const out = migrateStats([app(enGB), app(enUS)], stats);
+    expect(out[appId(enGB)]).toEqual({ count: 7, lastLaunched: 5000 });
+  });
+
+  it('reports nothing to do rather than rewriting storage for free', () => {
+    const clean = 'https://plain.example.com/';
+    expect(migrateStats([app(clean)], { [appId(clean)]: { count: 1 } })).toBeNull();
+    expect(migrateStats([app(clean)], {})).toBeNull();
+    expect(migrateStats([app(clean)], null)).toBeNull();
   });
 });

@@ -11,8 +11,22 @@
 // "When a read may remove" below.
 
 import { scrapeAppsFromDocument, scrollMyAppsStepInPage } from './lib/importer.js';
-import { applySyncRead, isSuspectRead, mergeApps } from './lib/apps.js';
-import { mutateApps, getSettings, DEFAULT_SETTINGS, SETTINGS_KEY } from './lib/storage.js';
+import {
+  applySyncRead,
+  isSuspectRead,
+  mergeApps,
+  migrateStats,
+  normalizeAppList,
+} from './lib/apps.js';
+import {
+  mutateApps,
+  getApps,
+  getStats,
+  saveStats,
+  getSettings,
+  DEFAULT_SETTINGS,
+  SETTINGS_KEY,
+} from './lib/storage.js';
 import { accumulateApps } from './lib/collector.js';
 
 const MYAPPS_PREFIX = 'https://myapplications.microsoft.com/';
@@ -35,7 +49,31 @@ chrome.runtime.onInstalled.addListener((details) => {
     chrome.runtime.openOptionsPage();
   }
   ensureAlarm();
+  healIdentities();
 });
+
+/**
+ * One-off on install/update: an app's id comes from its URL, so changing what
+ * counts as identity renames every record. Re-key the launch stats first, then
+ * re-normalise the list — which is what actually collapses two tiles that were
+ * only ever one app (a portal handing out Planner twice, once per locale).
+ * Order matters: the stats have to be moved while the OLD ids are still what
+ * `legacyAppId` reconstructs from the stored URL.
+ */
+async function healIdentities() {
+  try {
+    const apps = await getApps();
+    if (apps.length === 0) return;
+    const moved = migrateStats(apps, await getStats());
+    if (moved) await saveStats(moved);
+    await mutateApps((current) => {
+      const cleaned = normalizeAppList(current);
+      return JSON.stringify(cleaned) === JSON.stringify(current) ? undefined : cleaned;
+    });
+  } catch {
+    /* storage unavailable — the options page heals the list on its next load */
+  }
+}
 
 chrome.runtime.onStartup.addListener(ensureAlarm);
 

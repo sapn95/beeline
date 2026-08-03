@@ -87,6 +87,12 @@ export async function getStats() {
   return stats && typeof stats === 'object' ? stats : {};
 }
 
+export async function saveStats(stats) {
+  const area = localArea();
+  if (area) await area.set({ [STATS_KEY]: stats });
+  return stats;
+}
+
 export async function recordLaunch(id, now) {
   const area = localArea();
   const stats = await getStats();

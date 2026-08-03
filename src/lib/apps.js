@@ -12,17 +12,75 @@ export function isValidHttpsUrl(value) {
   }
 }
 
-/** Canonical form used for IDENTITY only: drops the fragment, keeps the rest
- * verbatim so two tiles pointing at the same launch URL collapse to one. The
- * stored URL keeps its fragment — hash-routed apps (Azure Portal blades, Power
- * BI pages) live entirely in it, and dropping it opens the wrong page. */
+/**
+ * Query parameters that say WHERE YOU CAME FROM, WHAT LANGUAGE you asked for or
+ * WHO YOU ARE — never WHICH APP this is. My Apps hands out the same tile with
+ * different ones, and one portal listed **Planner twice**, byte-identical but
+ * for `mkt=en-GB` against `mkt=en-US`. Keeping those in the identity made that
+ * two apps in the launcher, forever, because nothing downstream can tell them
+ * apart afterwards.
+ *
+ * Deliberately an allowlist rather than "strip the query": for plenty of hosts
+ * the query IS the app, and a blanket rule would fuse unrelated tiles into one.
+ * A single-letter parameter like `s=shell` is left in for the same reason — too
+ * generic to strip safely on a hunch.
+ */
+const IDENTITY_NOISE = new Set([
+  'mkt',
+  'lang',
+  'locale', // which language the portal felt like linking
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_content',
+  'utm_term',
+  'trk', // referral tracking
+  'referrer',
+  'referrerscenario',
+  'source',
+  'sourceapp',
+  'origin', // which launcher you came from
+  'login_hint',
+  'auth_upn',
+  'auth_pvr',
+  'upn',
+  'user_email',
+  'realm',
+  'tenant',
+  'tenantid', // who you signed in as
+]);
+
+/** Canonical form used for IDENTITY only: drops the fragment and the noise
+ * parameters above, and sorts what is left so parameter ORDER cannot split one
+ * app in two either. The stored URL keeps all of it — the fragment because
+ * hash-routed apps (Azure Portal blades, Power BI pages) live entirely in it,
+ * and the parameters because that is the URL the tile actually launches. */
 export function canonicalUrl(url) {
   try {
     const u = new URL(url);
     u.hash = '';
+    // Snapshot the keys: deleting from the live iterator skips entries.
+    for (const key of [...u.searchParams.keys()]) {
+      if (IDENTITY_NOISE.has(key.toLowerCase())) u.searchParams.delete(key);
+    }
+    u.searchParams.sort();
     return u.toString();
   } catch {
     return String(url ?? '').trim();
+  }
+}
+
+/** The id an app WOULD have had before the noise parameters were stripped —
+ * fragment dropped, query kept verbatim. Exists for exactly one reason: to
+ * carry launch stats across that change instead of resetting everyone's
+ * ranking to alphabetical. See migrateStats. */
+export function legacyAppId(url) {
+  try {
+    const u = new URL(url);
+    u.hash = '';
+    return fnv1a(u.toString());
+  } catch {
+    return fnv1a(String(url ?? '').trim());
   }
 }
 
@@ -81,6 +139,44 @@ export function normalizeApp(raw) {
   const missing = Number(raw.missing);
   if (Number.isInteger(missing) && missing > 0) app.missing = Math.min(missing, 9);
   return app;
+}
+
+/**
+ * Re-key launch stats from the pre-noise-stripping ids to the current ones.
+ *
+ * Every app's id is derived from its URL, so changing what counts as identity
+ * renames every record at once — and stats keyed by the old names would simply
+ * stop matching, resetting a ranking built up over months to plain alphabetical
+ * order. Where two old ids now name the SAME app (the Planner pair), their
+ * records are added together rather than one silently winning.
+ *
+ * @returns {object|null} the new stats, or null when nothing needed moving.
+ */
+export function migrateStats(apps, stats) {
+  if (!stats || typeof stats !== 'object') return null;
+  const next = { ...stats };
+  let moved = false;
+  // The RAW list, deliberately not the normalised one: normalising DEDUPES, and
+  // the whole point here is that two stored records now share an id. Each of
+  // them still has its own history to bring along.
+  for (const raw of Array.isArray(apps) ? apps : []) {
+    const url = String(raw?.url ?? '').trim();
+    if (!isValidHttpsUrl(url)) continue;
+    const old = legacyAppId(url);
+    const id = appId(url);
+    if (old === id || !next[old]) continue;
+    const from = next[old];
+    const to = next[id];
+    next[id] = to
+      ? {
+          count: (to.count ?? 0) + (from.count ?? 0),
+          lastLaunched: Math.max(to.lastLaunched ?? 0, from.lastLaunched ?? 0),
+        }
+      : from;
+    delete next[old];
+    moved = true;
+  }
+  return moved ? next : null;
 }
 
 export function dedupeApps(apps) {

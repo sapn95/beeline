@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { makeChrome, rebuildInjected, flush } from './helpers/extension.js';
-import { appId } from '../src/lib/apps.js';
+import { appId, legacyAppId } from '../src/lib/apps.js';
 
 const MYAPPS_URL = 'https://myapplications.microsoft.com/';
 const app = (name, url, source) => ({ id: appId(url), name, url, source });
@@ -59,6 +59,30 @@ describe('first run and alarms', () => {
     expect(c.runtime.openOptionsPage).toHaveBeenCalled();
     expect(c.alarms.get).toHaveBeenCalledWith('beeline-sync'); // same name it creates
     expect(c.alarms.create).toHaveBeenCalledWith('beeline-sync', { periodInMinutes: 360 });
+  });
+
+  it('collapses a duplicated tile on update and keeps its launch history', async () => {
+    // A portal handing the same app out twice, once per locale. Until the ids
+    // stopped counting `mkt`, that was two rows in the launcher forever.
+    const enGB = 'https://planner.cloud.microsoft/?mkt=en-GB';
+    const enUS = 'https://planner.cloud.microsoft/?mkt=en-US';
+    const c = await boot({
+      local: {
+        apps: [
+          { id: legacyAppId(enGB), name: 'Planner', url: enGB, source: 'myapps' },
+          { id: legacyAppId(enUS), name: 'Planner', url: enUS, source: 'myapps' },
+        ],
+        stats: {
+          [legacyAppId(enGB)]: { count: 4, lastLaunched: 1000 },
+          [legacyAppId(enUS)]: { count: 3, lastLaunched: 5000 },
+        },
+      },
+    });
+    await c.runtime.onInstalled.emit({ reason: 'update' });
+    await flush();
+    expect(storedApps()).toHaveLength(1);
+    // Both histories land on the surviving app rather than one quietly winning.
+    expect(c.storage.local.store.stats[appId(enGB)]).toEqual({ count: 7, lastLaunched: 5000 });
   });
 
   it('does not reopen the options page on an update', async () => {
