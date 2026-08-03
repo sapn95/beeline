@@ -7,6 +7,9 @@ Sign-in_ extension's app portal.
 Runs on **Chrome** (and other Chromium browsers such as Edge, Brave and Vivaldi)
 **and on Firefox** — one codebase, two builds.
 
+**Install:** [Chrome Web Store](https://chromewebstore.google.com/detail/ahcijedndjdoigcipppnkklgmlndkhka)
+· [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/beeline-fast-app-launcher/)
+
 Press **`Ctrl/Cmd` + `Shift` + `Space`**, type a few letters, hit **Enter** —
 the app opens through your existing SSO. No backend, no telemetry, no waiting.
 (The key is yours to change, and **Manage apps** shows the one your browser
