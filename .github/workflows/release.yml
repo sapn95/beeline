@@ -376,6 +376,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           BLOCKED: ${{ steps.cwspublish.outputs.blocked }}
+          REPUBLISH: ${{ inputs.tag }}
           TAG: ${{ steps.bump.outputs.tag || steps.plan.outputs.tag }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           DOCS_URL: ${{ github.server_url }}/${{ github.repository }}/blob/HEAD/docs/publishing.md
@@ -407,6 +408,14 @@ jobs:
                 "2. **Privacy practices** tab: single purpose + a justification for every permission. The ready-made wording is in [docs/publishing.md]($DOCS_URL)." \
                 "3. **Save draft**, then either hit **Submit for review** there, or re-run **Actions -> Release -> Run workflow** with the \`tag\` input set to \`$TAG\`."
             )"
+          elif [ -n "${REPUBLISH:-}" ]; then
+            # A republish of a tag that already went up: the store refusing a
+            # second upload while the first is in review is the expected answer,
+            # not a problem anybody has to act on. Filing an issue for it says
+            # "a released version is not published" about a version that was
+            # published — the run that shipped it logged "Publish successful".
+            echo "::warning::$TAG is already in the Chrome review queue; nothing to re-upload."
+            exit 0
           else
             why='**Nothing was uploaded.** The store refuses a new upload while a previous submission is still in review.'
             fix="$(
