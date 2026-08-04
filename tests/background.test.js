@@ -433,6 +433,68 @@ describe('the periodic sweep across containers', () => {
   });
 });
 
+describe('private windows', () => {
+  it('never syncs one you visit, which is the dangerous direction', async () => {
+    // The sweep already skipped these. The VISIT trigger did not — and a visit
+    // is foreground, which is the only mode allowed to remove. Another tenant's
+    // tiles would have been reconciled against the ordinary list.
+    const c = await boot({ local: { apps: [...EXISTING, GONE] } });
+    addTile('App 1', '1');
+    await c.tabs.onUpdated.emit(
+      11,
+      { status: 'complete' },
+      { url: MYAPPS_URL, incognito: true, cookieStoreId: 'firefox-private' },
+    );
+    await runSync();
+    expect(c.scripting.executeScript).not.toHaveBeenCalled();
+    expect(storedApps().map((a) => a.name)).toEqual(['Wiki', 'Gone']);
+  });
+});
+
+describe('a scope it owns nothing in', () => {
+  it('is refused BEFORE the grid walk, not after', async () => {
+    // Checking only inside the mutator meant a 90-second walk whose result was
+    // guaranteed to be discarded — while holding the lock every queued walk is
+    // waiting on.
+    const WORK = 'firefox-container-2';
+    const c = await boot({
+      local: {
+        apps: [
+          {
+            id: appId('https://launcher.myapps.microsoft.com/api/signin/w', WORK),
+            name: 'W',
+            url: 'https://launcher.myapps.microsoft.com/api/signin/w',
+            source: 'myapps',
+            container: WORK,
+          },
+        ],
+      },
+    });
+    c.tabs.get = vi.fn(async () => ({
+      status: 'complete',
+      active: true,
+      cookieStoreId: 'firefox-default',
+    }));
+    addTile('App 1', '1');
+    await c.tabs.onUpdated.emit(11, { status: 'complete' }, { url: MYAPPS_URL });
+    await runSync();
+    expect(c.scripting.executeScript).not.toHaveBeenCalled();
+  });
+
+  it('gives up when the tab itself cannot be read', async () => {
+    // Guessing "no container" would store a container tab's tiles as
+    // container-less duplicates.
+    const c = await boot();
+    c.tabs.get = vi.fn(async () => {
+      throw new Error('No tab with id 11');
+    });
+    addTile('App 1', '1');
+    await c.tabs.onUpdated.emit(11, { status: 'complete' }, { url: MYAPPS_URL });
+    await runSync();
+    expect(c.scripting.executeScript).not.toHaveBeenCalled();
+  });
+});
+
 describe('safety rules', () => {
   async function visit(c, ms) {
     await c.tabs.onUpdated.emit(11, { status: 'complete' }, { url: MYAPPS_URL });

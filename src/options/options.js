@@ -334,6 +334,11 @@ function renderList() {
     : String(apps.length);
 
   if (filtered.length === 0) {
+    // The previous render's tail is still queued, and it appends from the OLD
+    // list: without this the "no matches" line is followed, three frames later,
+    // by hundreds of rows that do not match.
+    cancelRowTail();
+    pending = [];
     const li = document.createElement('li');
     li.className = 'empty-row';
     li.textContent = narrowed
@@ -980,11 +985,35 @@ async function onImportFile(e) {
     e.target.value = '';
     return;
   }
+  // A file is not a browser. Three fields in it have to be earned, not claimed:
+  //
+  //   container — an id from ANOTHER profile means nothing here. It is either
+  //     gone (a row that can never be opened as anyone) or, worse, belongs to a
+  //     different container of this profile, which opens as the wrong identity.
+  //     Kept only if this browser really has that container.
+  //   missing   — a strike count of 9 would make the very next sync that fails
+  //     to find the app delete it, straight past the two-read rail.
+  //   source    — 'myapps' makes the app prunable, so a backup restored after a
+  //     reinstall is wiped by the first complete import. A file is a MANUAL act;
+  //     what comes out of one is a manual app until a real import says otherwise.
+  const live = new Set((await listContainers()).map((c) => c.cookieStoreId));
+  const cleaned = (Array.isArray(parsed) ? parsed : []).map((a) => ({
+    ...a,
+    missing: undefined,
+    source: 'manual',
+    container: live.has(a?.container) ? a.container : undefined,
+  }));
   try {
-    const before = apps.length;
-    apps = await mutateApps((current) => mergeApps(current, Array.isArray(parsed) ? parsed : []));
+    let added = 0;
+    apps = await mutateApps((current) => {
+      const next = mergeApps(current, cleaned);
+      // Counted inside the lock, against the list actually written — two
+      // overlapping imports were both reporting against the same stale count.
+      added = next.length - current.length;
+      return next;
+    });
     renderList();
-    setStatus(`Imported ${apps.length - before} new app(s) from file.`, 'ok');
+    setStatus(`Imported ${added} new app(s) from file.`, 'ok');
   } catch (err) {
     // A storage failure is NOT a malformed file — say which one it was.
     setStatus(`Could not save the imported apps: ${err.message}`, 'error');

@@ -534,3 +534,27 @@ describe('containers, the sequences that used to break', () => {
     expect(renamed.container).toBe(WORK);
   });
 });
+
+describe('migrateStats never robs a live app', () => {
+  const WORK = 'firefox-container-2';
+  const url = 'https://payroll.example.com/?mkt=en-GB';
+
+  it('leaves the container-less twin its own launch history', () => {
+    // A contained app's legacy id IS the container-less app's current id. Left
+    // unchecked, the migration hands one app's history to a different app and
+    // deletes the original's — on every extension update.
+    const apps = [
+      { name: 'Payroll', url, source: 'myapps' },
+      { name: 'Payroll', url, source: 'myapps', container: WORK },
+    ];
+    const stats = { [appId(url)]: { count: 42, lastLaunched: 9 } };
+    expect(migrateStats(apps, stats)).toBeNull(); // nothing to move
+  });
+
+  it('still migrates a contained app whose legacy id nobody owns', () => {
+    const apps = [{ name: 'Payroll', url, source: 'myapps', container: WORK }];
+    const stats = { [legacyAppId(url)]: { count: 7, lastLaunched: 3 } };
+    const out = migrateStats(apps, stats);
+    expect(out[appId(url, WORK)]).toEqual({ count: 7, lastLaunched: 3 });
+  });
+});

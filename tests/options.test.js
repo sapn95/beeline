@@ -613,6 +613,58 @@ describe('removing what the filter is showing', () => {
   });
 });
 
+describe('a JSON file is not a browser', () => {
+  const WORK = 'firefox-container-2';
+
+  async function importFile(records, containers = []) {
+    await mount({
+      apps: [],
+      mutate: (c) => {
+        c.contextualIdentities = { query: vi.fn(async () => containers) };
+      },
+    });
+    await flush();
+    const input = $('import-file');
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [{ text: async () => JSON.stringify(records) }],
+    });
+    input.dispatchEvent(new Event('change'));
+    await flush();
+    await flush();
+  }
+
+  const record = (extra) => ({
+    name: 'Restored',
+    url: 'https://restored.example.com/',
+    ...extra,
+  });
+
+  it('drops a container this browser does not have', async () => {
+    // An id from another profile is either gone, or belongs to a DIFFERENT
+    // container here — which opens as the wrong identity.
+    await importFile([record({ container: 'firefox-container-99' })]);
+    expect(stored()[0].container).toBeUndefined();
+  });
+
+  it('keeps a container this browser really has', async () => {
+    await importFile([record({ container: WORK })], [{ cookieStoreId: WORK, name: 'SBB' }]);
+    expect(stored()[0].container).toBe(WORK);
+  });
+
+  it('refuses a strike count that would delete the app on the next sync', async () => {
+    // missing:9 would make the very next read that misses it remove the app,
+    // straight past the two-read rail.
+    await importFile([record({ missing: 9 })]);
+    expect(stored()[0].missing).toBeUndefined();
+  });
+
+  it('restores apps as manual, so the next import cannot wipe the backup', async () => {
+    await importFile([record({ source: 'myapps' })]);
+    expect(stored()[0].source).toBe('manual');
+  });
+});
+
 describe('filtering by container', () => {
   const WORK = 'firefox-container-2';
   const HOME = 'firefox-container-3';

@@ -157,6 +157,16 @@ function wireEvents() {
     },
     true,
   );
+  // Bound on the document, not on the search box: once a keyboard user has
+  // tabbed onto "Copy name" the box no longer sees the key, and Escape was the
+  // only way out of a menu that traps nothing and manages no focus.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !ctxEl.hidden) {
+      e.preventDefault();
+      closeCtxMenu();
+      searchEl.focus();
+    }
+  });
   resultsEl.addEventListener('scroll', closeCtxMenu);
   window.addEventListener('blur', closeCtxMenu);
   // The panel can hand focus over after everything above has run. Take it back
@@ -233,8 +243,12 @@ function buildFallbacks(query) {
     // account happened to be signed in there — usually not the one whose app
     // you just failed to find. With no containers in play this is exactly one
     // row, as it has always been.
+    // Every scope the user keeps apps in — including the case where that is ONE
+    // container and no default context at all, which is exactly the user this
+    // was written for. Falling back to [''] there sent them to the portal as
+    // whichever account happened to be signed in outside their container.
     const scopes = [...new Set(apps.map((a) => a.container ?? ''))].sort();
-    for (const container of scopes.length > 1 ? scopes : ['']) {
+    for (const container of scopes.length > 0 ? scopes : ['']) {
       items.push({ fallback: 'myapps', query, container });
     }
   }
@@ -337,7 +351,14 @@ function renderItem(r, i) {
   // the host, and these URLs carry the account, the tenant and the region — the
   // things you actually want to check before opening one of two near-identical
   // rows. The container is named here too, since its colour cannot spell itself.
-  li.title = [wrapForTooltip(r.app.url), known ? `Opens in the ${known.name} container` : '']
+  li.title = [
+    wrapForTooltip(r.app.url),
+    // A container can be deleted while its apps live on. Naming it by its raw
+    // id is ugly, but it is the difference between two visually identical rows
+    // and two tellable-apart ones — and this is the fallback a keyboard user
+    // relies on precisely when the colour has stopped meaning anything.
+    r.app.container ? `Opens in the ${known?.name || r.app.container} container` : '',
+  ]
     .filter(Boolean)
     .join('\n');
   host.textContent = r.app.folder ? `${r.app.folder} · ${where}` : where;
@@ -350,10 +371,12 @@ function renderItem(r, i) {
   // spells it out is never reached by the person most likely to need it. The
   // name rides along in the container's own colour: colour to find the row,
   // word to be sure of it.
-  if (known) {
+  if (r.app.container) {
     const chip = document.createElement('span');
     chip.className = 'cchip';
-    chip.textContent = known.name;
+    // A deleted container leaves apps behind that still name it. The raw id is
+    // honest; a missing chip would read as "no container" on a row that has one.
+    chip.textContent = known?.name || r.app.container;
     li.append(chip);
   }
   li.addEventListener('click', () => launch(i));
@@ -494,13 +517,13 @@ function move(delta) {
   updateSelection();
 }
 
-function updateSelection() {
+function updateSelection({ scroll = true } = {}) {
   const el = resultsEl.children[selected] || null;
   if (selectedEl && selectedEl !== el) selectedEl.classList.remove('selected');
   selectedEl = el;
   if (!el) return;
   el.classList.add('selected');
-  el.scrollIntoView({ block: 'nearest' });
+  if (scroll) el.scrollIntoView({ block: 'nearest' });
 }
 
 async function launch(i, background = false) {
@@ -569,7 +592,11 @@ function openOptions() {
 function openCtxMenu(e, app, i) {
   e.preventDefault();
   selected = i;
-  updateSelection();
+  // Marked WITHOUT scrolling: scrollIntoView on a partly-visible row scrolls
+  // #results, and the scroll listener that dismisses this menu then fires on the
+  // next frame — the menu closed itself the moment you right-clicked a row near
+  // the edge. The row is under the pointer already; it needs no scrolling to.
+  updateSelection({ scroll: false });
   ctxApp = app;
   ctxEl.hidden = false;
   // Show first (so we can measure it), then clamp inside the popup viewport.

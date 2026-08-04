@@ -114,6 +114,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   if (info.status !== 'complete') return;
   if (!tab.url?.startsWith(MYAPPS_PREFIX)) return;
+  // Same guard the sweep has, and it matters MORE here: a private window is
+  // foreground, and foreground is the only mode allowed to remove. Its store is
+  // rejected by isContained, so the read would be scoped to the default context
+  // — another tenant's tiles reconciled against the ordinary list, deleting it.
+  if (isPrivate(tab)) return;
   const now = Date.now();
   if (now - (lastSync.get(tabId) || 0) < VISIT_DEBOUNCE_MS) return;
   lastSync.set(tabId, now);
@@ -138,6 +143,11 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
  * Skipping discarded/frozen tabs avoids hanging executeScript; an ACTIVE tab is
  * worth more than a background one (only it may remove), so it wins its store.
  */
+/** A private window: its own sign-in, its own store, gone when it closes. */
+function isPrivate(tab) {
+  return !!tab?.incognito || String(tab?.cookieStoreId ?? '').startsWith('firefox-private');
+}
+
 async function syncOpenTab() {
   // Rejects when the optional My Apps origin has not been granted yet.
   const tabs = await chrome.tabs.query({ url: MYAPPS_PATTERN }).catch(() => []);
@@ -148,7 +158,7 @@ async function syncOpenTab() {
     // would be scoped to the DEFAULT context (isContained rejects private
     // stores), so a different tenant's tiles would be reconciled against the
     // ordinary list — and the window's session is gone by the next sweep anyway.
-    if (tab.incognito || String(tab.cookieStoreId ?? '').startsWith('firefox-private')) continue;
+    if (isPrivate(tab)) continue;
     const store = tab.cookieStoreId ?? '';
     const held = bestPerStore.get(store);
     if (!held || (tab.active && !held.active)) bestPerStore.set(store, tab);
@@ -189,6 +199,9 @@ async function syncTab(tabId) {
   syncing = true;
   try {
     await syncTabLocked(tabId);
+  } catch {
+    // Both callers are fire-and-forget, so a throw here would surface as an
+    // unhandled rejection AND skip the drain below, stranding every queued walk.
   } finally {
     syncing = false;
   }
@@ -222,7 +235,11 @@ async function syncTabLocked(tabId) {
   // user's — exactly the read that must never be allowed to remove anything.
   const info = () => chrome.tabs.get(tabId).catch(() => null);
   const first = await info();
-  const wasForeground = !!first?.active;
+  // Without the tab we cannot know its container, and guessing "no container"
+  // would store a container tab's tiles as container-less duplicates.
+  if (!first) return;
+  if (isPrivate(first)) return;
+  const wasForeground = !!first.active;
   // Which container this tab lives in decides which slice of the app list the
   // read is allowed to speak for. A My Apps tab in the work container is signed
   // in as that identity and lists only its tiles — reconciled against the whole
@@ -246,6 +263,15 @@ async function syncTabLocked(tabId) {
   // list mutateApps already holds. Reading the whole list here as well meant two
   // full reads per container per sync — 537 KiB each on a real profile, four
   // times over on a four-container sweep.
+
+  // Cheap pre-check, kept even though the mutator checks again on the freshest
+  // list: without it an unowned scope walks the grid for up to 90 seconds and
+  // throws the whole result away, holding the lock the queued walks are waiting
+  // for. The authoritative check is still the one inside the mutator.
+  const before = await getApps().catch(() => null);
+  if (before && before.length > 0 && !before.some((a) => (a?.container ?? '') === container)) {
+    return;
+  }
 
   const scraped = await collectTilesFromTab(tabId, container);
   if (!scraped || scraped.length === 0) return;

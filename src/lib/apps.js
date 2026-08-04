@@ -193,10 +193,19 @@ export function migrateStats(apps, stats) {
   // The RAW list, deliberately not the normalised one: normalising DEDUPES, and
   // the whole point here is that two stored records now share an id. Each of
   // them still has its own history to bring along.
+  // Which ids the list itself already claims. A CONTAINED app's legacy id is,
+  // by construction, the container-less app's CURRENT id — so migrating it would
+  // hand one app's launch history to a different app and delete the original's.
+  const claimed = new Set(
+    (Array.isArray(apps) ? apps : [])
+      .filter((a) => isValidHttpsUrl(String(a?.url ?? '').trim()))
+      .map((a) => appId(String(a.url).trim(), a?.container)),
+  );
   for (const raw of Array.isArray(apps) ? apps : []) {
     const url = String(raw?.url ?? '').trim();
     if (!isValidHttpsUrl(url)) continue;
     const old = legacyAppId(url);
+    if (claimed.has(old)) continue; // that history belongs to a live app
     // With the app's own container, or the migration target is an id nothing
     // owns — and `delete next[old]` would then throw the history away.
     const id = appId(url, raw?.container);
