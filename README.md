@@ -25,6 +25,7 @@ actually has bound.)
 - [Visuals](#visuals)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Tips](#tips)
 - [Development](#development)
 - [Architecture](#architecture)
 - [Publishing](#publishing)
@@ -139,6 +140,15 @@ syncs with My Apps — and, on Firefox, which containers' apps the launcher list
 and how loudly a container is marked on a row. The same
 page shows the launcher's current keyboard shortcut and links to where the
 browser lets you rebind it.
+
+## Tips
+
+A handful of things that look like Beeline misbehaving and are not — most of
+them browser settings that only bite once you know they exist. Chief among them:
+**why Firefox asks you to sign in to every container after each restart**, which
+is a cookie setting and takes three clicks to fix.
+
+**→ [docs/tips.md](docs/tips.md)**
 
 ## Development
 
