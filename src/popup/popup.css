@@ -122,6 +122,14 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Cut the FRONT, not the back. These names run "SBB AWS fsx-filerservice-…"
+   * — the shared prefix is the part you already know and the tail is what tells
+   * one from the next, so an ellipsis at the end hides the only useful half.
+   * `direction: rtl` moves the ellipsis to the start; `unicode-bidi: plaintext`
+   * keeps the text itself in its own reading order, so nothing is reordered. */
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: left;
 }
 
 .name mark {
@@ -269,6 +277,10 @@ footer button {
 .cchip {
   flex: 0 1 auto;
   max-width: 40%;
+  /* Enough room for five characters and the ellipsis before it starts eating
+   * the name: a badge shortened to "S…" says nothing at all, and the whole
+   * point of it is being readable at a glance. */
+  min-width: 6ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

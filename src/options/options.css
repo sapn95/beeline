@@ -227,6 +227,15 @@ kbd {
 
 .apps .app-name {
   font-weight: 500;
+  /* Cut the FRONT, as the popup does: with names like "SBB AWS fsx-filerservice-
+   * bkv-prod" the shared prefix is what you already know and the tail is what
+   * tells one row from the next. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: left;
 }
 
 .apps .app-url {
@@ -316,6 +325,7 @@ kbd {
 }
 
 .badge {
+  min-width: 6ch;
   flex: none;
   font-size: 11px;
   color: var(--accent);
