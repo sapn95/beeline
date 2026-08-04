@@ -530,6 +530,92 @@ describe('filtering', () => {
   });
 });
 
+describe('the full URL on hover', () => {
+  it('spells out the whole launch URL, which the row itself truncates', async () => {
+    // These URLs carry the account, the tenant and the region — the tail that
+    // gets cut off is the part that tells two near-identical rows apart.
+    await mount();
+    expect(rows()[0].querySelector('.app-url').title).toBe('https://jira.example.com/');
+  });
+});
+
+describe('filtering by container', () => {
+  const WORK = 'firefox-container-2';
+  const HOME = 'firefox-container-3';
+  const url = 'https://outlook.example.com/';
+  const CONTAINED = [
+    { id: appId(url), name: 'Calendar', url, source: 'myapps' },
+    { id: appId(url, WORK), name: 'Calendar', url, source: 'myapps', container: WORK },
+    {
+      id: appId('https://jira.example.com/', HOME),
+      name: 'Jira',
+      url: 'https://jira.example.com/',
+      source: 'myapps',
+      container: HOME,
+    },
+  ];
+
+  const withContainers = {
+    apps: CONTAINED,
+    mutate: (c) => {
+      c.contextualIdentities = {
+        query: vi.fn(async () => [
+          { cookieStoreId: WORK, name: 'SBB', color: 'red' },
+          { cookieStoreId: HOME, name: 'Personal', color: 'green' },
+        ]),
+      };
+    },
+  };
+
+  it('offers the containers, with an "all" and a "no container" choice', async () => {
+    await mount(withContainers);
+    await flush();
+    expect([...$('filter-container').options].map((o) => o.textContent)).toEqual([
+      'All containers',
+      'No container',
+      'SBB',
+      'Personal',
+    ]);
+    expect($('filter-container-wrap').hidden).toBe(false);
+  });
+
+  it('narrows the list to one container', async () => {
+    await mount(withContainers);
+    await flush();
+    $('filter-container').value = WORK;
+    $('filter-container').dispatchEvent(new Event('change'));
+    expect(rowNames()).toEqual(['Calendar']);
+    expect(rows()[0].querySelector('.badge').textContent).toContain('SBB');
+  });
+
+  it('can show the ones with no container, which no text can express', async () => {
+    await mount(withContainers);
+    await flush();
+    $('filter-container').value = '';
+    $('filter-container').dispatchEvent(new Event('change'));
+    expect(rowNames()).toEqual(['Calendar']);
+    expect(rows()[0].querySelector('.badge').textContent).toBe('My Apps'); // no container chip
+  });
+
+  it('matches a container name typed into the text box', async () => {
+    // Same tile from two containers has an identical name and URL, so the
+    // container is the only thing that tells the two rows apart.
+    await mount(withContainers);
+    await flush();
+    $('app-filter').value = 'sbb';
+    $('app-filter').dispatchEvent(new Event('input'));
+    expect(rowNames()).toEqual(['Calendar']);
+    expect($('count').textContent).toBe('1 found · 3 total');
+  });
+
+  it('stays hidden on a browser without containers', async () => {
+    await mount({ apps: CONTAINED });
+    await flush();
+    expect($('filter-container-wrap').hidden).toBe(true);
+    expect(rows()).toHaveLength(3); // everything still listed
+  });
+});
+
 describe('editing a row', () => {
   async function startEdit(index = 0) {
     const buttons = [...rows()[index].querySelectorAll('button')];

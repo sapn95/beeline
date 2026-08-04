@@ -6,6 +6,7 @@ import {
   withContainer,
   hasCookiesPermission,
   requestCookiesPermission,
+  containerColor,
   DEFAULT_STORE,
 } from '../src/lib/containers.js';
 
@@ -143,5 +144,51 @@ describe('requestCookiesPermission', () => {
       },
     };
     await expect(requestCookiesPermission()).resolves.toBe(false);
+  });
+});
+
+describe('containerColor', () => {
+  it('paints the colours both Firefox generations use', () => {
+    expect(containerColor('blue')).toBe('#37adff');
+    expect(containerColor('PURPLE')).toBe('#af51f5'); // case is Firefox's business
+    expect(containerColor('toolbar')).toBe('currentColor'); // newer, theme-following
+  });
+
+  it('gives no colour for a name it does not know', () => {
+    // Firefox 153 renamed colours and added others. An add-on that insists on
+    // knowing every name is one release away from being wrong, so an unknown
+    // one drops the dot and keeps the container's name in words.
+    expect(containerColor('chartreuse')).toBe('');
+    expect(containerColor(undefined)).toBe('');
+    expect(containerColor(null)).toBe('');
+    expect(containerColor(7)).toBe('');
+  });
+});
+
+describe('withContainer when the permission check itself fails', () => {
+  it('drops the container rather than guessing it is allowed', async () => {
+    // permissions.contains throwing is indistinguishable from "not granted",
+    // and guessing "granted" would hand Firefox a cookieStoreId it rejects —
+    // turning "open this app" into "nothing happens".
+    globalThis.browser = {
+      permissions: {
+        contains: vi.fn(async () => {
+          throw new Error('permissions API unavailable');
+        }),
+      },
+    };
+    await expect(
+      withContainer({ url: 'https://x.example.com/' }, 'firefox-container-2'),
+    ).resolves.toEqual({ url: 'https://x.example.com/' });
+  });
+});
+
+describe('containerColor is not fooled by prototype keys', () => {
+  it('gives nothing for inherited property names', () => {
+    // A plain lookup returns Object.prototype.constructor here — truthy, and
+    // painted into a style as a function.
+    expect(containerColor('constructor')).toBe('');
+    expect(containerColor('__proto__')).toBe('');
+    expect(containerColor('toString')).toBe('');
   });
 });

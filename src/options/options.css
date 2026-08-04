@@ -358,3 +358,50 @@ kbd {
     transform: translateX(320%);
   }
 }
+
+/* The dot on a container chip, painted with the colour Firefox gives that
+ * container so a row is recognisable without reading it. Absent when Firefox
+ * reports a colour name this build does not know — see containerColor(). */
+.badge .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: baseline;
+}
+
+/* The filter box and the container dropdown share a line; the box takes what is
+ * left so a long container name never squeezes it to nothing. */
+.filter-row {
+  gap: 8px;
+  align-items: center;
+}
+
+.filter-row #app-filter {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.select.inline {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Sub-headings inside Settings. The section grew from three controls to nine,
+ * and a flat list of nine gives no clue which ones belong together. */
+section h3 {
+  margin: 22px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+section h3:first-of-type {
+  margin-top: 12px;
+}

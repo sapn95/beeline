@@ -124,16 +124,34 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   }, 4000);
 });
 
+/**
+ * The periodic sweep: one My Apps tab per COOKIE STORE, not one tab overall.
+ *
+ * With containers a profile can be signed in as several identities at once, each
+ * with its own My Apps and its own tiles. Syncing whichever tab happened to sort
+ * first would leave every other container to go stale forever — and staleness
+ * here means an app that was revoked months ago still sitting in the launcher.
+ *
+ * Strictly one at a time, and never two per container. Two loops scrolling the
+ * same virtualised grid make each other skip slices, and a read that skipped
+ * slices is exactly the short read the removal rails are built to distrust.
+ * Skipping discarded/frozen tabs avoids hanging executeScript; an ACTIVE tab is
+ * worth more than a background one (only it may remove), so it wins its store.
+ */
 async function syncOpenTab() {
-  // Sync the first LIVE My Apps tab. Skipping discarded/frozen tabs avoids
-  // hanging executeScript; checking all matches (not just the first) means one
-  // discarded tab doesn't make the alarm skip a live one. An ACTIVE tab is worth
-  // more than a background one (see below), so prefer one if there is a choice.
   // Rejects when the optional My Apps origin has not been granted yet.
   const tabs = await chrome.tabs.query({ url: MYAPPS_PATTERN }).catch(() => []);
-  const live = tabs.filter((t) => !t.discarded);
-  const best = live.find((t) => t.active) ?? live[0];
-  if (best) await syncTab(best.id);
+  const bestPerStore = new Map();
+  for (const tab of tabs) {
+    if (tab.discarded) continue;
+    const store = tab.cookieStoreId ?? '';
+    const held = bestPerStore.get(store);
+    if (!held || (tab.active && !held.active)) bestPerStore.set(store, tab);
+  }
+  // Sequential on purpose: `await` in a loop is the point, not an oversight.
+  for (const tab of bestPerStore.values()) {
+    await syncTab(tab.id);
+  }
 }
 
 // Like the options page: a frozen/discarded tab can make executeScript hang, so
@@ -145,7 +163,24 @@ function withTimeout(promise, ms) {
   ]);
 }
 
+// One grid walk at a time, across every trigger. The alarm sweep, a visit to
+// the portal and a second visit seconds later all land in the same place, and
+// two of them at once would scroll the same tab's grid from two directions —
+// or hold two tabs open for minutes each. The manual import has its own,
+// separate claim (IMPORT_FLAG) because it runs in another page entirely.
+let syncing = false;
+
 async function syncTab(tabId) {
+  if (syncing) return;
+  syncing = true;
+  try {
+    await syncTabLocked(tabId);
+  } finally {
+    syncing = false;
+  }
+}
+
+async function syncTabLocked(tabId) {
   const allowed = await chrome.permissions
     .contains({ origins: [MYAPPS_PATTERN] })
     .catch(() => false);
@@ -171,6 +206,17 @@ async function syncTab(tabId) {
   // in as that identity and lists only its tiles — reconciled against the whole
   // list it would look like every other container's apps had vanished.
   const container = isContained(first?.cookieStoreId) ? first.cookieStoreId : '';
+
+  // Adopting a container is the options page's job, never the sync's. Without
+  // this, opening My Apps in a container ONCE would read that tenant, find no
+  // apps under that scope (so nothing looks suspect), and add every tile a
+  // second time as container-pinned copies with new ids and no launch history —
+  // the whole list, duplicated, in rows the sync has no `cookies` permission to
+  // open in their container anyway.
+  if (container) {
+    const known = await getApps().catch(() => []);
+    if (!known.some((a) => a?.container === container)) return;
+  }
 
   const scraped = await collectTilesFromTab(tabId, container);
   if (!scraped || scraped.length === 0) return;

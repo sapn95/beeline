@@ -179,7 +179,9 @@ export function migrateStats(apps, stats) {
     const url = String(raw?.url ?? '').trim();
     if (!isValidHttpsUrl(url)) continue;
     const old = legacyAppId(url);
-    const id = appId(url);
+    // With the app's own container, or the migration target is an id nothing
+    // owns — and `delete next[old]` would then throw the history away.
+    const id = appId(url, raw?.container);
     if (old === id || !next[old]) continue;
     const from = next[old];
     const to = next[id];
@@ -270,9 +272,10 @@ export function reconcileApps(existing, scraped, { container = '' } = {}) {
     const legacy = legacyById.get(app.id);
     map.set(app.id, legacy ? { ...legacy, source: 'myapps' } : app);
   }
-  // A manual import is the user watching a complete walk of the grid: it settles
-  // the question for every app, so nothing is left carrying a strike.
-  return [...map.values()].map(unmarked);
+  // A manual import is the user watching a complete walk of the grid, so it
+  // settles the question — but only for the container it actually walked.
+  // Another container's strikes are none of its business.
+  return [...map.values()].map((a) => (inScope(a) ? unmarked(a) : a));
 }
 
 /** Drop the automatic sync's strike counter from a record. */
@@ -318,8 +321,15 @@ export function applySyncRead(existing, scraped, { strikes = 2, container = '' }
   const apps = [];
   const removed = [];
   for (const app of mergeApps(existing, incoming)) {
-    if (app.source !== 'myapps' || !inScope(app) || seen.has(app.id)) {
-      apps.push(unmarked(app)); // still there, another container's, or not ours
+    if (app.source !== 'myapps' || seen.has(app.id)) {
+      apps.push(unmarked(app)); // still there, or not ours to prune
+      continue;
+    }
+    if (!inScope(app)) {
+      // Another container's. This read never looked at it, so it neither clears
+      // nor adds a strike — clearing would mean a user who alternates between a
+      // default and a container My Apps tab could never prune anything again.
+      apps.push(app);
       continue;
     }
     const strike = (app.missing ?? 0) + 1;
@@ -359,8 +369,12 @@ export function isSuspectRead(
     (a) => a.source === 'myapps' && (a.container ?? '') === scope,
   );
   if (known.length === 0) return false; // nothing to lose yet
+  // Guarded before the map: this is the one rail whose whole job is to distrust
+  // a bad read, so it must never be the thing that throws on one.
   const seen = new Set(
-    normalizeAppList(scraped.map((a) => ({ ...a, container: scope }))).map((a) => a.id),
+    normalizeAppList(
+      (Array.isArray(scraped) ? scraped : []).map((a) => ({ ...a, container: scope })),
+    ).map((a) => a.id),
   );
   const absent = known.reduce((n, a) => (seen.has(a.id) ? n : n + 1), 0);
   return absent > Math.max(floor, known.length * maxMissingRatio);

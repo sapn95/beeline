@@ -2,7 +2,7 @@ import { getApps, getStats, getSettings, recordLaunch } from '../lib/storage.js'
 import { rankApps, hostOf } from '../lib/ranking.js';
 import { withAwsRegion } from '../lib/apps.js';
 import { loadBookmarkItems } from '../lib/bookmarks.js';
-import { withContainer, listContainers } from '../lib/containers.js';
+import { withContainer, listContainers, containerColor } from '../lib/containers.js';
 
 const searchEl = document.getElementById('search');
 const resultsEl = document.getElementById('results');
@@ -23,7 +23,7 @@ let settings = {
   awsRegion: '',
   includeBookmarks: false,
 };
-let containers = new Map(); // cookieStoreId -> display name (Firefox only)
+let containers = new Map(); // cookieStoreId -> {name, color} (Firefox only)
 let current = [];
 let selected = 0;
 let selectedEl = null; // the highlighted row, kept so selection never walks the whole list
@@ -61,7 +61,7 @@ async function init() {
       listContainers(),
     ]);
     [apps, stats, settings] = [a, st, se];
-    containers = new Map(cs.map((c) => [c.cookieStoreId, c.name]));
+    containers = new Map(cs.map((c) => [c.cookieStoreId, c]));
   } catch {
     /* storage unavailable — fall back to the defaults above rather than a blank popup */
   }
@@ -278,9 +278,28 @@ function renderItem(r, i) {
   // container, for the same reason and more urgently: the same tile imported
   // from two containers is two rows that are otherwise identical, and picking
   // the wrong one signs in as the wrong person.
-  const from =
-    r.app.folder || (r.app.container ? containers.get(r.app.container) || r.app.container : '');
-  host.textContent = from ? `${from} · ${where}` : where;
+  // A container is shown as COLOUR, not as words: at a glance, in a list where
+  // the two rows are otherwise identical, a red edge against a pink one reads
+  // instantly where "SBB · outlook.office.com" has to be parsed. The same
+  // colour Firefox paints that container's tabs with, so it is already learned.
+  // The name still goes in the tooltip, for anyone who needs it spelled out and
+  // for a colour nobody can tell apart.
+  const known = r.app.container ? containers.get(r.app.container) : null;
+  if (r.app.container) {
+    const edge = containerColor(known?.color);
+    li.classList.add('contained');
+    // No known colour still gets an edge, in the text colour: "this one is
+    // pinned somewhere" is the part that matters, the hue is the shortcut.
+    li.style.setProperty('--container', edge || 'currentColor');
+  }
+  // Hover long enough and you get the WHOLE launch URL. The subtitle is only
+  // the host, and these URLs carry the account, the tenant and the region — the
+  // things you actually want to check before opening one of two near-identical
+  // rows. The container is named here too, since its colour cannot spell itself.
+  li.title = [r.app.url, known ? `Opens in the ${known.name} container` : '']
+    .filter(Boolean)
+    .join('\n');
+  host.textContent = r.app.folder ? `${r.app.folder} · ${where}` : where;
   meta.append(name, host);
 
   li.append(icon, meta);

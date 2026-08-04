@@ -210,3 +210,12 @@ footer button {
   font-size: 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
+
+/* An app pinned to a Firefox container carries that container's colour as a
+ * left edge. Two rows for the same tile in different containers are otherwise
+ * identical down to the URL, and a colour is read at a glance where a name has
+ * to be read word by word. The name is in the row's tooltip. */
+.item.contained {
+  border-left: 3px solid var(--container, currentColor);
+  padding-left: 7px; /* 10px - 3px, so the text does not shift against its neighbours */
+}

@@ -6,12 +6,7 @@ import {
   scrollMyAppsStepInPage,
 } from '../lib/importer.js';
 import { accumulateApps } from '../lib/collector.js';
-import {
-  listContainers,
-  withContainer,
-  requestCookiesPermission,
-  isContained,
-} from '../lib/containers.js';
+import { listContainers, withContainer, isContained, containerColor } from '../lib/containers.js';
 
 const MYAPPS_ORIGIN = 'https://myapplications.microsoft.com/';
 const MYAPPS_PATTERN = 'https://myapplications.microsoft.com/*';
@@ -29,8 +24,9 @@ let apps = [];
 let editingId = null;
 let editDraft = null; // {name, url} in-progress edit, preserved across re-renders
 let appFilter = '';
+let containerFilter = 'all'; // 'all' | '' (no container) | a cookieStoreId
 let pendingAppsRefresh = false; // a storage change arrived while editing — apply it on exit
-let containerNames = new Map(); // cookieStoreId -> name, for the row chips
+let containerInfo = new Map(); // cookieStoreId -> {name, color}, for the row chips
 let settingsLoaded = false; // until the form holds the SAVED settings, never write it back
 
 async function init() {
@@ -77,6 +73,10 @@ function wireControls() {
   document.getElementById('clear').addEventListener('click', onClear);
   document.getElementById('app-filter').addEventListener('input', (e) => {
     appFilter = e.target.value;
+    renderList();
+  });
+  document.getElementById('filter-container').addEventListener('change', (e) => {
+    containerFilter = e.target.value;
     renderList();
   });
   document.getElementById('open-in-new-tab').addEventListener('change', onSettingChange);
@@ -256,16 +256,33 @@ function showImportProgress(count) {
 
 function renderList() {
   const q = appFilter.trim().toLowerCase();
-  const filtered = q
-    ? apps.filter((a) => a.name.toLowerCase().includes(q) || a.url.toLowerCase().includes(q))
-    : apps;
-  countEl.textContent = q ? `${filtered.length} found · ${apps.length} total` : String(apps.length);
+  // Two filters, because they answer different questions. The text box asks
+  // "which app", and now matches the container's NAME as well — with the same
+  // tile imported from several containers, name and URL are identical and the
+  // container is the only thing telling the rows apart. The dropdown asks
+  // "which identity", which no amount of typing can express: there is no text
+  // that means "the ones with no container at all".
+  const matchesText = (a) =>
+    !q ||
+    a.name.toLowerCase().includes(q) ||
+    a.url.toLowerCase().includes(q) ||
+    (a.container ? containerInfo.get(a.container)?.name || a.container : '')
+      .toLowerCase()
+      .includes(q);
+  const matchesContainer = (a) =>
+    containerFilter === 'all' || (a.container ?? '') === containerFilter;
+
+  const narrowed = containerFilter !== 'all' || q;
+  const filtered = narrowed ? apps.filter((a) => matchesText(a) && matchesContainer(a)) : apps;
+  countEl.textContent = narrowed
+    ? `${filtered.length} found · ${apps.length} total`
+    : String(apps.length);
 
   if (filtered.length === 0) {
     const li = document.createElement('li');
     li.className = 'empty-row';
-    li.textContent = q
-      ? `No apps match “${appFilter.trim()}”.`
+    li.textContent = narrowed
+      ? 'No apps match that filter.'
       : 'No apps yet — import from My Apps or add one above.';
     listEl.replaceChildren(li);
     return;
@@ -289,6 +306,10 @@ function renderRow(app) {
   const url = document.createElement('div');
   url.className = 'app-url';
   url.textContent = app.url;
+  // The row truncates, and these URLs carry the account, the tenant and the
+  // region — exactly the tail that gets cut off, and exactly what tells two
+  // near-identical rows apart. Hovering spells the whole thing out.
+  url.title = app.url;
   grow.append(name, url);
 
   const edit = document.createElement('button');
@@ -310,9 +331,19 @@ function renderRow(app) {
   // Which container, if any. Two rows can otherwise be identical down to the
   // URL and differ only in which identity they sign in as.
   if (app.container) {
+    const known = containerInfo.get(app.container);
     const chip = document.createElement('span');
     chip.className = 'badge';
-    chip.textContent = containerNames.get(app.container) || app.container;
+    const dot = containerColor(known?.color);
+    if (dot) {
+      // Firefox paints its container tabs with this colour, so the same dot is
+      // what makes a row recognisable at a glance rather than read word by word.
+      const swatch = document.createElement('span');
+      swatch.className = 'dot';
+      swatch.style.background = dot;
+      chip.append(swatch);
+    }
+    chip.append(document.createTextNode(known?.name || app.container));
     chip.title = 'Opens in this Firefox container';
     li.append(chip);
   }
@@ -415,7 +446,19 @@ async function onEditSave(oldId, name, url, keep, iconUrl) {
   // leaves it tagged 'myapps', so a future sync may overwrite or remove it.
   // The icon travels with the edit: the old record is about to be dropped, and
   // for a pinned ('manual') app no later sync would ever restore it.
-  const updated = normalizeApp({ name, url, iconUrl, source: keep ? 'manual' : 'myapps' });
+  // The container travels with the edit too, and for a harder reason than the
+  // icon: it is part of the id. Dropping it re-keys the app on a rename — the
+  // launch history is orphaned, the row starts opening in the default context
+  // as the wrong identity, and if a container-less twin of the same URL exists
+  // the new id collides with it and the rename can never be saved at all.
+  const before = apps.find((a) => a.id === oldId);
+  const updated = normalizeApp({
+    name,
+    url,
+    iconUrl,
+    container: before?.container,
+    source: keep ? 'manual' : 'myapps',
+  });
   if (!updated) {
     setStatus('Enter a name and a valid https:// URL.', 'error');
     return;
@@ -575,6 +618,8 @@ function waitForTabComplete(tabId, timeoutMs = 25000) {
 // window stays in the background, so you are never pulled off this settings page.
 // A fresh window also means a clean URL (no leftover ?search= filter). The
 // window is always closed when we're done.
+let openedIn = ''; // cookieStoreId the last helper window really opened in
+
 async function withMyAppsWindow(fn, container = '') {
   // My Apps inside a container is signed in as THAT identity and lists that
   // tenant's tiles. Reading the work container therefore means opening the
@@ -593,6 +638,13 @@ async function withMyAppsWindow(fn, container = '') {
     ),
   );
   const tabId = win.tabs?.[0]?.id ?? null;
+  // What the window ACTUALLY got, which is not always what was asked for:
+  // withContainer drops the cookieStoreId when `cookies` is missing, and a
+  // container can be deleted between the picker being filled and Import being
+  // pressed. The caller compares this against its own scope — reconciling a
+  // read of the default context against a container would delete that
+  // container's entire app list.
+  openedIn = win.tabs?.[0]?.cookieStoreId ?? '';
   try {
     if (tabId == null) throw new Error('could not open a My Apps window');
     await waitForTabComplete(tabId);
@@ -656,22 +708,30 @@ async function onImportMyApps() {
   btn.disabled = true;
   const label = btn.textContent;
   setStatus('Requesting access to My Apps…', 'busy');
+  // ONE request, and it has to be the first await in this handler. Firefox
+  // treats a handler as user-initiated only until it waits on a promise, and
+  // permissions.request needs that status — asking for `cookies` in a second,
+  // later call therefore rejects every time, even when it is already granted.
+  // That made every container import abort before it read anything.
+  //
+  // `cookies` is what makes a cookieStoreId mean anything at all, so it is
+  // bundled in whenever a container is picked. Being refused stops the import
+  // rather than quietly reading the DEFAULT container, whose tiles would then
+  // be reconciled against the chosen container and delete every app in it.
   const granted = await chrome.permissions
-    .request({ origins: [MYAPPS_PATTERN] })
+    .request({
+      origins: [MYAPPS_PATTERN],
+      ...(container ? { permissions: ['cookies'] } : {}),
+    })
     .catch(() => false);
   if (!granted) {
     btn.disabled = false;
-    setStatus('Permission denied — cannot read My Apps.', 'error');
-    return;
-  }
-  // `cookies` is what makes a cookieStoreId mean anything. Firefox grants it
-  // without a prompt, but asking must still happen inside this click. Refusing
-  // to continue is deliberate: silently reading the DEFAULT container instead
-  // would then reconcile the chosen container's apps against the wrong tenant's
-  // tiles and delete every one of them.
-  if (container && !(await requestCookiesPermission())) {
-    btn.disabled = false;
-    setStatus('Container access denied — nothing was read, so nothing changed.', 'error');
+    setStatus(
+      container
+        ? 'Access denied — nothing was read, so nothing changed.'
+        : 'Permission denied — cannot read My Apps.',
+      'error',
+    );
     return;
   }
 
@@ -723,17 +783,36 @@ async function onImportMyApps() {
   // Tag every scraped tile as 'myapps' BEFORE storing — otherwise a partial
   // (merge-only) import saves them untagged, so they read as manual apps that a
   // later complete reconcile can never prune (and they'd miss the My Apps badge).
+  // Which container the tiles in front of us REALLY came from. Not always the
+  // one that was picked: withContainer drops the cookieStoreId when `cookies`
+  // is missing, and a container can be deleted between the picker being filled
+  // and Import being pressed. Reconciling a default-context read against a
+  // container would remove every app that container has.
+  const readIn = isContained(openedIn) ? openedIn : '';
+  const scopeHeld = readIn === container;
+  if (!scopeHeld) {
+    setStatus(
+      'That container could not be opened, so this import can only add — nothing was removed.',
+      'info',
+    );
+  }
+
+  // Tagged with the container the tiles REALLY came from. Labelling a default
+  // read as a container's would create apps that open as the wrong identity.
   const scraped = best.map((a) => ({
     ...a,
     source: 'myapps',
-    ...(container ? { container } : {}),
+    ...(readIn ? { container: readIn } : {}),
   }));
 
   // Only reconcile (which removes apps no longer in My Apps) when we scrolled all
   // the way through AND owned the grid while doing it; any other read only adds,
   // so it can never wrongly delete. mutateApps does this atomically against the
   // freshest stored list.
-  const canPrune = complete && claimed;
+  //
+  // The third condition is `scopeHeld` (computed above): this read may only
+  // speak for the scope it was actually taken in.
+  const canPrune = complete && claimed && scopeHeld;
   const before = apps.length;
   try {
     apps = await mutateApps((current) =>
@@ -894,7 +973,7 @@ async function populateContainers() {
   const sel = document.getElementById('import-container');
   const row = document.getElementById('import-container-row');
   const found = await listContainers();
-  containerNames = new Map(found.map((c) => [c.cookieStoreId, c.name]));
+  containerInfo = new Map(found.map((c) => [c.cookieStoreId, c]));
   if (found.length === 0) return; // row stays hidden
   const none = document.createElement('option');
   none.value = '';
@@ -907,6 +986,25 @@ async function populateContainers() {
     sel.append(o);
   }
   row.hidden = false;
+
+  // The same choices as a filter over the list, plus "All" and "No container".
+  const filter = document.getElementById('filter-container');
+  for (const [value, label] of [
+    ['all', 'All containers'],
+    ['', 'No container'],
+  ]) {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = label;
+    filter.append(o);
+  }
+  for (const c of found) {
+    const o = document.createElement('option');
+    o.value = c.cookieStoreId;
+    o.textContent = c.name;
+    filter.append(o);
+  }
+  document.getElementById('filter-container-wrap').hidden = false;
 }
 
 function populateSyncIntervals() {

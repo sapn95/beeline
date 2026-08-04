@@ -475,3 +475,62 @@ describe('containers', () => {
     expect(out[0].id).toBe(appId(tile(1).url, WORK));
   });
 });
+
+describe('containers, the sequences that used to break', () => {
+  const WORK = 'firefox-container-2';
+  const HOME = 'firefox-container-3';
+  const tile = (n) => ({ name: `App ${n}`, url: `https://app${n}.example.com/` });
+  const inC = (n, container) => ({ ...tile(n), source: 'myapps', container });
+
+  it('keeps a strike through a sync of a different container', () => {
+    // Alternating between a default and a container My Apps tab used to clear
+    // the counter every other round, so nothing could EVER be pruned again.
+    let apps = [{ ...tile(1), source: 'myapps' }, inC(9, WORK)];
+    apps = applySyncRead(apps, [], { container: '' }).apps;
+    expect(apps.find((a) => a.name === 'App 1').missing).toBe(1);
+
+    apps = applySyncRead(apps, [tile(9)], { container: WORK }).apps;
+    expect(apps.find((a) => a.name === 'App 1').missing).toBe(1); // untouched
+
+    const { removed } = applySyncRead(apps, [], { container: '' });
+    expect(removed.map((a) => a.name)).toEqual(['App 1']); // second in-scope miss
+  });
+
+  it("leaves another container's strikes alone on a manual import", () => {
+    const marked = [{ ...inC(1, HOME), missing: 1 }, inC(2, WORK)];
+    const out = reconcileApps(marked, [tile(2)], { container: WORK });
+    expect(out.find((a) => a.name === 'App 1').missing).toBe(1);
+  });
+
+  it('removes a contained app after two misses of its own container', () => {
+    let apps = [inC(1, WORK), inC(2, WORK)];
+    apps = applySyncRead(apps, [tile(1)], { container: WORK }).apps;
+    const { removed } = applySyncRead(apps, [tile(1)], { container: WORK });
+    expect(removed.map((a) => a.name)).toEqual(['App 2']);
+  });
+
+  it('does not throw on a scrape that is not a list', () => {
+    // This is the rail whose job is to distrust a bad read; it must not be the
+    // thing that throws on one.
+    expect(() => isSuspectRead([inC(1, WORK)], null, { container: WORK })).not.toThrow();
+    expect(isSuspectRead([inC(1, WORK)], undefined)).toBe(false);
+  });
+
+  it("migrates a contained app's stats onto the id it really has", () => {
+    const url = 'https://planner.cloud.microsoft/?mkt=en-GB';
+    const app = { name: 'Planner', url, source: 'myapps', container: WORK };
+    const stats = { [legacyAppId(url)]: { count: 5, lastLaunched: 10 } };
+    const out = migrateStats([app], stats);
+    expect(out[appId(url, WORK)]).toEqual({ count: 5, lastLaunched: 10 });
+    expect(out[appId(url)]).toBeUndefined(); // not the container-less id
+  });
+
+  it('keeps the id when a contained app is renamed', () => {
+    // normalizeApp is what an edit rebuilds through: losing the container there
+    // re-keys the app, orphans its history and points it at the wrong identity.
+    const original = normalizeApp(inC(1, WORK));
+    const renamed = normalizeApp({ ...inC(1, WORK), name: 'Renamed' });
+    expect(renamed.id).toBe(original.id);
+    expect(renamed.container).toBe(WORK);
+  });
+});
