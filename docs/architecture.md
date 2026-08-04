@@ -105,6 +105,27 @@ sequenceDiagram
   path — so it is fully unit-testable and carries the coverage gate (see
   `vitest.config.js`). UI glue (`popup`, `options`, `background`) is thin and
   verified by load-unpacked smoke testing.
+- **A container is part of an app's identity, not a launch option.** (Firefox
+  only; Chrome has no counterpart and every entry point in `lib/containers.js`
+  answers "there are no containers" rather than throwing.) `appId` folds the
+  cookie store id in, so the same My Apps tile read from two containers is two
+  apps that sign in as two different people. An app with no container hashes
+  exactly as before, so no existing id moves and no launch history is orphaned.
+  The consequence that matters is on the REMOVAL side: a scrape only ever sees
+  one container's My Apps, so `reconcileApps`, `applySyncRead` and
+  `isSuspectRead` are all scoped to it. The import compares the container its
+  helper window _really_ opened in against the one that was picked and refuses
+  to prune on a mismatch; the background sync takes its scope from the tab it
+  read, skips private windows, and will not act on a scope that owns no apps —
+  in EITHER direction, because adopting a container and re-adding a
+  container-only list as container-less are the same duplication bug mirrored.
+- **The periodic sweep is per container, one walk at a time.** Syncing whichever
+  My Apps tab sorted first left every other container to go stale; two walks on
+  one virtualised grid make each other skip slices, which is precisely the short
+  read the removal rails exist to distrust. A walk that finds the lock held is
+  queued rather than dropped — it can hold for 90 s per container, and the visit
+  sync it would otherwise discard is the only trigger allowed to remove
+  anything.
 - **Removal earns its confidence over time, not in one read.** The manual Import
   is the user watching a full walk of the grid, so it reconciles outright. The
   automatic sync runs unattended and cannot be that sure, so it never deletes on

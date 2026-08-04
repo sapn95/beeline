@@ -4,6 +4,8 @@ import { withAwsRegion } from '../lib/apps.js';
 import { loadBookmarkItems } from '../lib/bookmarks.js';
 import { withContainer, listContainers, containerColor } from '../lib/containers.js';
 
+const MYAPPS_URL = 'https://myapplications.microsoft.com/';
+
 const searchEl = document.getElementById('search');
 const resultsEl = document.getElementById('results');
 const emptyEl = document.getElementById('empty');
@@ -126,7 +128,9 @@ async function loadBookmarks() {
 
 /** Two rendered rows are the same row when they launch the same thing. */
 function isSameResult(a, b) {
-  return a.fallback ? a.fallback === b.fallback && a.query === b.query : a.app?.id === b.app?.id;
+  return a.fallback
+    ? a.fallback === b.fallback && a.query === b.query && a.container === b.container
+    : a.app?.id === b.app?.id;
 }
 
 function wireEvents() {
@@ -222,7 +226,18 @@ function ensureRendered(i) {
 function buildFallbacks(query) {
   const mode = settings.fallbackSearch;
   const items = [];
-  if (mode === 'myapps' || mode === 'both') items.push({ fallback: 'myapps', query });
+  if (mode === 'myapps' || mode === 'both') {
+    // One row per container the user actually keeps apps in. My Apps in the
+    // work container lists a different tenant than the same page in the default
+    // context, so a single "search My Apps" row would send you to whichever
+    // account happened to be signed in there — usually not the one whose app
+    // you just failed to find. With no containers in play this is exactly one
+    // row, as it has always been.
+    const scopes = [...new Set(apps.map((a) => a.container ?? ''))].sort();
+    for (const container of scopes.length > 1 ? scopes : ['']) {
+      items.push({ fallback: 'myapps', query, container });
+    }
+  }
   if (mode === 'web' || mode === 'both') items.push({ fallback: 'web', query });
   return items;
 }
@@ -396,8 +411,11 @@ function renderFallbackItem(r, i) {
   meta.className = 'meta';
   const name = document.createElement('span');
   name.className = 'name';
+  const where = r.container ? containers.get(r.container)?.name || r.container : '';
   name.textContent =
-    r.fallback === 'myapps' ? `Search My Apps for “${r.query}”` : `Search the web for “${r.query}”`;
+    r.fallback === 'myapps'
+      ? `Search My Apps for “${r.query}”${where ? ` (${where})` : ''}`
+      : `Search the web for “${r.query}”`;
   const host = document.createElement('span');
   host.className = 'host';
   host.textContent =
@@ -524,7 +542,7 @@ async function launch(i, background = false) {
   if (settings.closeAfterLaunch) window.close();
 }
 
-function doFallback(r) {
+async function doFallback(r) {
   if (r.fallback === 'web') {
     if (chrome.search?.query) {
       chrome.search.query({ text: r.query, disposition: 'NEW_TAB' });
@@ -532,7 +550,9 @@ function doFallback(r) {
       chrome.tabs.create({ url: `https://duckduckgo.com/?q=${encodeURIComponent(r.query)}` });
     }
   } else {
-    chrome.tabs.create({ url: 'https://myapplications.microsoft.com/' });
+    // Opened in the container the row stands for, so the portal comes up as the
+    // account whose apps you were looking for.
+    chrome.tabs.create(await withContainer({ url: MYAPPS_URL }, r.container));
   }
   if (settings.closeAfterLaunch) window.close();
 }

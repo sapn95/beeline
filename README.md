@@ -51,6 +51,14 @@ actually has bound.)
   cannot find a large part of your list is discarded rather than acted on, and a
   sync of a portal tab you can't see can only ever add. So a half-read page never
   empties the launcher.
+- 🧩 **Firefox containers** — one profile can be signed in to My Apps as several
+  identities at once, and each shows a different tenant's tiles. Import from each
+  container separately and both sets live side by side: the same app appears once
+  per container, marked in that container's own Firefox colour and opened as the
+  right identity. The periodic sync covers every container you keep apps in, one
+  at a time, and a read of one container can never remove another's apps. Filter
+  the list by container, and clear only what the filter is showing. Chrome has no
+  such feature, and none of this appears there.
 - 🔖 **Bookmarks too — if you want** — switch on _"Also search this browser's
   bookmarks"_ in the settings and your bookmarks join the search results (each
   showing the folder it lives in, and ranked just below an app of the same

@@ -804,3 +804,68 @@ describe('how strongly a container is marked', () => {
     expect(rows()[0].classList.contains('contained')).toBe(true); // still marked
   });
 });
+
+describe('the My Apps fallback with containers', () => {
+  const WORK = 'firefox-container-2';
+  const MIXED = [
+    { id: 'f1', name: 'Alpha', url: 'https://alpha.example.com/', source: 'myapps' },
+    {
+      id: 'f2',
+      name: 'Beta',
+      url: 'https://beta.example.com/',
+      source: 'myapps',
+      container: WORK,
+    },
+  ];
+
+  async function mountMixed(apps) {
+    globalThis.chrome = makeChrome({ local: { apps }, sync: { settings: {} } });
+    globalThis.browser = {
+      contextualIdentities: {
+        query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+      },
+      permissions: { contains: vi.fn(async () => true) },
+    };
+    loadPage('popup');
+    vi.resetModules();
+    await import('../src/popup/popup.js');
+    await flush();
+    const search = document.getElementById('search');
+    search.value = 'nothing matches this';
+    search.dispatchEvent(new Event('input'));
+  }
+
+  afterEach(() => {
+    delete globalThis.browser;
+  });
+
+  it('offers one row per container the user keeps apps in', async () => {
+    // My Apps in the work container lists a different tenant than the same page
+    // in the default context, so a single row would send you to whichever
+    // account happened to be signed in — usually not the one you searched for.
+    await mountMixed(MIXED);
+    expect(rows().map((li) => li.querySelector('.name').textContent)).toEqual([
+      'Search My Apps for “nothing matches this”',
+      'Search My Apps for “nothing matches this” (SBB)',
+    ]);
+  });
+
+  it('opens the portal in the container that row stands for', async () => {
+    await mountMixed(MIXED);
+    press(document.getElementById('search'), 'ArrowDown');
+    press(document.getElementById('search'), 'Enter');
+    await flush();
+    expect(globalThis.chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'https://myapplications.microsoft.com/',
+      cookieStoreId: WORK,
+    });
+  });
+
+  it('stays a single row when no container is in play', async () => {
+    await mountMixed([MIXED[0]]);
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0].querySelector('.name').textContent).toBe(
+      'Search My Apps for “nothing matches this”',
+    );
+  });
+});

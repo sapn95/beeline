@@ -74,6 +74,16 @@ it.
   "Also search this browser's bookmarks", and used solely to list matching
   bookmarks in the launcher popup. Switching the setting off gives the
   permission back. Nothing from your bookmarks is stored or transmitted.
+- **contextualIdentities** _(Firefox only)_ — to read the **names and colours**
+  of your containers, so an app can say which one it belongs to and be opened
+  there. Firefox offers no optional form of this permission, which is why it is
+  requested up front. It reads nothing else: not what is in a container, not
+  what you do in one.
+- **cookies** _(Firefox only)_ — an _optional_ permission, requested the first
+  time you choose a container. Despite the name, Beeline never reads or writes a
+  cookie: this permission is simply what makes Firefox honour "open this tab in
+  that container" (`cookieStoreId`) at all. Without it a container-pinned app
+  would silently open in the ordinary context.
 
 ## Data sharing
 
