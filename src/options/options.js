@@ -262,6 +262,29 @@ function showImportProgress(count) {
   listEl.replaceChildren(li);
 }
 
+/**
+ * Does this app pass both filters? Shared by the list and by "Remove all", so
+ * the button can never act on a different set than the one on screen.
+ *
+ * The text box asks "which app" and matches the container's NAME too — with the
+ * same tile imported from several containers, name and URL are identical and
+ * the container is the only thing telling the rows apart. The dropdown asks
+ * "which identity", which no amount of typing can express: there is no text
+ * that means "the ones with no container at all".
+ */
+function matchesFilters(a) {
+  const q = appFilter.trim().toLowerCase();
+  const inContainer = containerFilter === 'all' || (a.container ?? '') === containerFilter;
+  if (!inContainer) return false;
+  if (!q) return true;
+  const container = a.container ? containerInfo.get(a.container)?.name || a.container : '';
+  return (
+    a.name.toLowerCase().includes(q) ||
+    a.url.toLowerCase().includes(q) ||
+    container.toLowerCase().includes(q)
+  );
+}
+
 function renderList() {
   const q = appFilter.trim().toLowerCase();
   // Two filters, because they answer different questions. The text box asks
@@ -270,18 +293,8 @@ function renderList() {
   // container is the only thing telling the rows apart. The dropdown asks
   // "which identity", which no amount of typing can express: there is no text
   // that means "the ones with no container at all".
-  const matchesText = (a) =>
-    !q ||
-    a.name.toLowerCase().includes(q) ||
-    a.url.toLowerCase().includes(q) ||
-    (a.container ? containerInfo.get(a.container)?.name || a.container : '')
-      .toLowerCase()
-      .includes(q);
-  const matchesContainer = (a) =>
-    containerFilter === 'all' || (a.container ?? '') === containerFilter;
-
   const narrowed = containerFilter !== 'all' || q;
-  const filtered = narrowed ? apps.filter((a) => matchesText(a) && matchesContainer(a)) : apps;
+  const filtered = narrowed ? apps.filter((a) => matchesFilters(a)) : apps;
   countEl.textContent = narrowed
     ? `${filtered.length} found · ${apps.length} total`
     : String(apps.length);
@@ -526,15 +539,32 @@ async function onDelete(id) {
   setStatus('Removed.', 'ok');
 }
 
+/** The apps the list is currently showing — what "Remove all" now acts on. */
+function visibleApps() {
+  return apps.filter((a) => matchesFilters(a));
+}
+
 async function onClear() {
   await ensureFresh(); // confirm against the real current list, not a stale one
-  if (apps.length === 0) return;
-  if (!confirm(`Remove all ${apps.length} apps? This cannot be undone.`)) return;
-  editingId = null; // any open edit row is moot once the list is emptied
+  // Deliberately scoped to the filter. Clearing one container's apps meant
+  // removing them one row at a time, and the button next to a filtered list
+  // that says "Remove all" but empties everything behind it is a trap.
+  const doomed = visibleApps();
+  if (doomed.length === 0) return;
+  const all = doomed.length === apps.length;
+  const what = all
+    ? `Remove all ${apps.length} apps?`
+    : `Remove the ${doomed.length} app(s) currently shown, out of ${apps.length}?`;
+  if (!confirm(`${what} This cannot be undone.`)) return;
+  editingId = null; // any open edit row is moot once its row can be gone
   editDraft = null;
-  apps = await mutateApps(() => []);
+  // Matched by id against the freshest stored list, not by re-running the
+  // filter inside the lock: a sync that landed while the dialog was open must
+  // not silently widen what gets removed.
+  const ids = new Set(doomed.map((a) => a.id));
+  apps = await mutateApps((current) => current.filter((a) => !ids.has(a.id)));
   renderList();
-  setStatus('Removed all apps.', 'ok');
+  setStatus(all ? 'Removed all apps.' : `Removed ${ids.size} app(s).`, 'ok');
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

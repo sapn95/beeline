@@ -539,6 +539,80 @@ describe('the full URL on hover', () => {
   });
 });
 
+describe('containers are invisible on a browser that has none', () => {
+  it('hides every container control, not just the picker', async () => {
+    // Chrome has no such feature, and a Firefox with privacy.userContext off
+    // reports none either. A dead dropdown is worse than no dropdown.
+    await mount();
+    expect($('import-container-row').hidden).toBe(true);
+    expect($('filter-container-wrap').hidden).toBe(true);
+    expect($('container-style-row').hidden).toBe(true);
+  });
+});
+
+describe('removing what the filter is showing', () => {
+  const WORK = 'firefox-container-2';
+  const url = (n) => `https://app${n}.example.com/`;
+  const SOME = [
+    { id: appId(url(1)), name: 'Plain one', url: url(1), source: 'myapps' },
+    { id: appId(url(2), WORK), name: 'Work one', url: url(2), source: 'myapps', container: WORK },
+    { id: appId(url(3), WORK), name: 'Work two', url: url(3), source: 'myapps', container: WORK },
+  ];
+
+  const mountWork = () =>
+    mount({
+      apps: SOME,
+      mutate: (c) => {
+        c.contextualIdentities = {
+          query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+        };
+      },
+    });
+
+  it('removes only the filtered apps, not the whole list', async () => {
+    // A button next to a filtered list that says "Remove all" and empties
+    // everything behind it is a trap.
+    await mountWork();
+    await flush();
+    $('filter-container').value = WORK;
+    $('filter-container').dispatchEvent(new Event('change'));
+    await click($('clear'));
+    expect(stored().map((a) => a.name)).toEqual(['Plain one']);
+    expect(status()).toBe('Removed 2 app(s).');
+  });
+
+  it('says how many of how many are going', async () => {
+    await mountWork();
+    await flush();
+    $('app-filter').value = 'work two';
+    $('app-filter').dispatchEvent(new Event('input'));
+    await click($('clear'));
+    expect(globalThis.confirm).toHaveBeenCalledWith(
+      'Remove the 1 app(s) currently shown, out of 3? This cannot be undone.',
+    );
+    expect(stored()).toHaveLength(2);
+  });
+
+  it('still empties everything when nothing is filtered', async () => {
+    await mountWork();
+    await flush();
+    await click($('clear'));
+    expect(globalThis.confirm).toHaveBeenCalledWith('Remove all 3 apps? This cannot be undone.');
+    expect(stored()).toEqual([]);
+    expect(status()).toBe('Removed all apps.');
+  });
+
+  it('does nothing when the filter matches nothing', async () => {
+    await mountWork();
+    await flush();
+    $('app-filter').value = 'nothing matches this';
+    $('app-filter').dispatchEvent(new Event('input'));
+    await click($('clear'));
+    expect(globalThis.confirm).not.toHaveBeenCalled();
+    expect(stored()).toHaveLength(3);
+  });
+});
+
 describe('filtering by container', () => {
   const WORK = 'firefox-container-2';
   const HOME = 'firefox-container-3';

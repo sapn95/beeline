@@ -405,3 +405,17 @@ section h3 {
 section h3:first-of-type {
   margin-top: 12px;
 }
+
+/* Import row: the container picker belongs to the button it modifies, and the
+ * JSON pair is a different job, so it is pushed to the far end. Wraps rather
+ * than overflowing on a narrow window. */
+.import-row {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.import-row .spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
