@@ -520,6 +520,18 @@ describe('safety rules', () => {
     expect(c.scripting.executeScript).not.toHaveBeenCalled();
   });
 
+  it('stands down for a claim younger than the longest possible import', async () => {
+    // An import can now wait ten minutes for a sign-in and then read for two.
+    // A claim that expired after five let the sync start walking the very grid
+    // the import was still scrolling — the interleaving the flag prevents.
+    const c = await boot({
+      local: { apps: EXISTING, beelineImporting: Date.now() - 10 * 60 * 1000 },
+    });
+    addTile('App 1', '1');
+    await visit(c);
+    expect(c.scripting.executeScript).not.toHaveBeenCalled();
+  });
+
   it('resumes when a crashed import left a stale flag behind', async () => {
     const c = await boot({
       // Older than IMPORT_FLAG_TTL_MS, which is 15 minutes — long enough to

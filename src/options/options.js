@@ -1196,7 +1196,11 @@ async function refreshContainers() {
   // Settings must not be writable while the controls that speak for them are
   // empty: `containerControlsReady()` would say no, and any change made in that
   // window would write the page-load values back, undoing the user's filter.
-  const wasLoaded = settingsLoaded;
+  // Not writable while the controls that speak for the settings are being
+  // rebuilt. Restored by loadSettings() below and by nothing else: handing back
+  // a remembered value overwrote a successful load with a stale `false` and left
+  // the page refusing every change, and a remembered `true` would have let a
+  // FAILED load write half-built controls back over the stored settings.
   settingsLoaded = false;
   // Remembered across the rebuild: replaceChildren() resets a <select> to its
   // first option, which silently turned "filter on Work" into "all containers"
@@ -1223,8 +1227,12 @@ async function refreshContainers() {
       document.getElementById(id).hidden = true;
     }
     await populateContainers();
-    // The pickers were just rebuilt, so put the saved values back on them.
-    await loadSettings().catch(() => {});
+    // The pickers were just rebuilt, so put the saved values back on them. A
+    // failure here deliberately leaves the page unwritable — the form no longer
+    // holds the settings, so writing it back would lose them.
+    await loadSettings().catch(() => {
+      setStatus('Could not re-read your settings — reload the page before changing them.', 'error');
+    });
     // 'all' as the fallback, not the first option: with the last container
     // deleted the select is empty, and '' would silently switch the list from
     // "all containers" to "no container" — with no visible control to undo it.
@@ -1234,10 +1242,6 @@ async function refreshContainers() {
     restoreIfStillThere('import-container', keep.import);
     restoreIfStillThere('add-container', keep.add);
   } finally {
-    // NOT a blind restore: the rebuild runs loadSettings() itself, and if that
-    // succeeded the page IS loaded — overwriting it with a pre-rebuild `false`
-    // left the settings permanently unwritable, with every change refused.
-    settingsLoaded = settingsLoaded || wasLoaded;
     refreshing = false;
   }
   renderList(); // the chips carry container NAMES
@@ -1305,9 +1309,11 @@ async function populateContainers() {
   }
   document.getElementById('add-container-row').hidden = false;
 
-  // The launcher's pre-filter. One box per scope, all ticked, because the
-  // stored value is the HIDDEN set — so "nothing stored" means "show all".
-  const hidden = new Set((await getSettings().catch(() => ({}))).hiddenContainers ?? []);
+  // The launcher's pre-filter. Boxes are BUILT here and TICKED by loadSettings,
+  // which owns every other control on this page. Reading the settings a second
+  // time here — and swallowing the failure — meant the boxes could come up
+  // all-ticked while loadSettings succeeded, so the page counted as loaded and
+  // the next change wrote that empty filter back over the user's.
   const box = document.getElementById('popup-containers');
   for (const [value, label] of [
     ['', 'No container'],
@@ -1318,7 +1324,7 @@ async function populateContainers() {
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.dataset.scope = value;
-    input.checked = !hidden.has(value);
+    input.checked = true; // corrected by loadSettings
     input.addEventListener('change', onSettingChange);
     wrap.append(input, document.createTextNode(` ${label}`));
     box.append(wrap);
@@ -1333,7 +1339,6 @@ async function populateContainers() {
     o.textContent = label;
     style.append(o);
   }
-  style.value = (await getSettings().catch(() => ({}))).containerStyle ?? 'fill';
   document.getElementById('container-style-row').hidden = false;
 }
 
@@ -1406,6 +1411,10 @@ async function loadSettings() {
   document.getElementById('sync-interval').value = String(settings.syncIntervalMin);
   document.getElementById('sync-on-visit').checked = Boolean(settings.syncOnVisit);
   document.getElementById('container-style').value = settings.containerStyle;
+  const hidden = new Set(settings.hiddenContainers);
+  for (const box of document.querySelectorAll('#popup-containers input')) {
+    box.checked = !hidden.has(box.dataset.scope);
+  }
   applyTheme(settings.theme);
   // Last, because it needs a second async round-trip: show what is actually in
   // effect. The permission can be revoked in the browser's own extension

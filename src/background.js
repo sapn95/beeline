@@ -41,7 +41,9 @@ const READ_BUDGET_MS = 90000; // walking a few hundred tiles takes a while
 // timestamp) for the duration; we treat it as live for a bounded window so a
 // crashed import can't pause sync forever.
 const IMPORT_FLAG = 'beelineImporting';
-// Longer than the longest possible import. That is now ten and a half minutes,
+// Longer than the longest possible import. Measured worst case is about twelve
+// and a half minutes — ten of grace, two of reading, plus the tab load and the
+// SPA settle —
 // because an import will wait ten of them for a sign-in — and a claim that
 // expires mid-import lets the sync start walking the very grid the import is
 // scrolling, which is the interleaving this flag exists to prevent.

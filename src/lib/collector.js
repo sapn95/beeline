@@ -11,7 +11,8 @@
  * @param {object} io
  * @param {(seenCount:number)=>Promise<Array|null>} io.scrapeRound
  *   Returns the tiles currently rendered, or `null` when the page is not ready
- *   yet (sign-in origin / still loading) — `null` is retried, never counted.
+ *   yet (sign-in origin / still loading). `null` is retried; it costs a round
+ *   like any other, EXCEPT while the sign-in grace below is open.
  * @param {()=>Promise<number|null>} io.scrollRound
  *   Scrolls one step; returns the pixels still left to the bottom (<= 4 ≈ at the
  *   bottom, 0 when nothing could scroll further), or `null`/non-number on failure.
@@ -76,7 +77,7 @@ export async function accumulateApps({
 
     const found = await scrapeRound(seen.size);
     if (found === null) {
-      await sleep(1200); // not ready yet — wait and retry without counting it
+      await sleep(1200); // not ready yet — wait and retry
       // …and without spending a round, but ONLY while the grace is still open.
       // Unconditionally, this removes the last bound on the loop: with no
       // deadline (the documented default) a page that never answers spins for
@@ -86,7 +87,11 @@ export async function accumulateApps({
     }
     if (!sawTiles && found.length > 0) {
       sawTiles = true;
-      if (budget !== null) readUntil = Date.now() + budget; // reading starts here
+      // Only while the grace was still open. Otherwise a caller whose deadline
+      // outlives its grace would get a whole fresh budget handed to it long
+      // after the deadline had passed, and `deadline` would stop being a bound
+      // at all.
+      if (budget !== null && waitingToSignIn) readUntil = Date.now() + budget;
     }
 
     const grew = addNew(seen, found);

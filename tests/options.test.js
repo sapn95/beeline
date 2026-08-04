@@ -782,34 +782,62 @@ describe('rebuilding after a container changed', () => {
     };
   }
 
-  it('keeps the settings page writable when the first load had failed', async () => {
+  it('stays writable when a container event lands after a failed first load', async () => {
     // The rebuild runs loadSettings() itself. Handing the flag back as it was
-    // BEFORE the rebuild left the page permanently unwritable: every later
-    // change refused with "Settings are not loaded yet".
-    let first = true;
+    // BEFORE the rebuild overwrote that success with a stale `false`, and every
+    // later change was refused with "Settings are not loaded yet".
+    let calls = 0;
     await mount({
-      ...withEvents([{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+      apps: [],
       mutate: (c) => {
         c.contextualIdentities = {
           query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
           onUpdated: makeEventStub(),
         };
-        const real = c.storage.sync.get;
+        const real = c.storage.sync.get.bind(c.storage.sync);
         c.storage.sync.get = vi.fn(async (k) => {
-          if (first) {
-            first = false;
-            throw new Error('transient');
-          }
+          calls += 1;
+          if (calls === 1) throw new Error('transient'); // the page-load read
           return real(k);
         });
       },
     });
     await flush();
+    expect(status()).toMatch(/Could not read your settings/); // the page IS unloaded
     await fire();
     $('theme').value = 'dark';
     $('theme').dispatchEvent(new Event('change'));
     await flush();
     expect(status()).toBe('Settings saved.');
+  });
+
+  it('refuses to write when the rebuild cannot read the settings either', async () => {
+    // The opposite failure, and the reason the flag is not simply forced true:
+    // the form no longer holds the settings, so writing it back would lose them
+    // — hiddenContainers in particular, which lives only in those checkboxes.
+    await mount({
+      apps: [],
+      settings: { hiddenContainers: [WORK] },
+      mutate: (c) => {
+        c.contextualIdentities = {
+          query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+          onUpdated: makeEventStub(),
+        };
+      },
+    });
+    await flush();
+    globalThis.chrome.storage.sync.get = vi.fn(async () => {
+      throw new Error('gone');
+    });
+    await fire();
+    $('theme').value = 'dark';
+    $('theme').dispatchEvent(new Event('change'));
+    await flush();
+    expect(status()).toMatch(/reload the page|not loaded yet/);
+    // The pre-filter is still what it was — not overwritten by empty controls.
+    expect(globalThis.chrome.storage.local.store.localSettings?.hiddenContainers ?? [WORK]).toEqual(
+      [WORK],
+    );
   });
 
   it('leaves the list on "all containers" when the last one is deleted', async () => {
