@@ -70,6 +70,13 @@ body {
   padding: 4px;
   max-height: 380px;
   overflow-y: auto;
+  /* A hair of air between rows. Without it two container-marked rows sit edge
+   * to edge and their colours touch — a red border directly against a pink one
+   * reads as one smudged block rather than two apps. 3px is enough to separate
+   * them and small enough that an unmarked list looks the same as before. */
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .item {
