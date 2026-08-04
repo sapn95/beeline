@@ -285,6 +285,31 @@ function matchesFilters(a) {
   );
 }
 
+/**
+ * Break a long URL into lines for a `title` tooltip. A native tooltip does not
+ * wrap, so one unbroken 400-character launch URL stretches the box to the edge
+ * of the screen with most of it off-screen. Split on the separators the URL
+ * already has, so a line ends somewhere meaningful rather than mid-GUID.
+ */
+function wrapForTooltip(url, width = 90) {
+  const text = String(url ?? '');
+  if (text.length <= width) return text;
+  const lines = [];
+  let line = '';
+  for (const part of text.split(/(?=[?&/#])/)) {
+    for (let i = 0; i < part.length; i += width) {
+      const piece = part.slice(i, i + width);
+      if (line && line.length + piece.length > width) {
+        lines.push(line);
+        line = '';
+      }
+      line += piece;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.join('\n');
+}
+
 function renderList() {
   const q = appFilter.trim().toLowerCase();
   // Two filters, because they answer different questions. The text box asks
@@ -330,7 +355,7 @@ function renderRow(app) {
   // The row truncates, and these URLs carry the account, the tenant and the
   // region — exactly the tail that gets cut off, and exactly what tells two
   // near-identical rows apart. Hovering spells the whole thing out.
-  url.title = app.url;
+  url.title = wrapForTooltip(app.url);
   grow.append(name, url);
 
   const edit = document.createElement('button');

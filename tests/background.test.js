@@ -325,7 +325,11 @@ describe('the periodic sweep across containers', () => {
     // go stale forever — and stale here means a revoked app that never leaves.
     const c = await boot({
       local: {
-        apps: [contained('W', signin('w'), WORK), contained('H', signin('h'), HOME)],
+        apps: [
+          app('Plain', signin('p'), 'myapps'), // the default context owns one too
+          contained('W', signin('w'), WORK),
+          contained('H', signin('h'), HOME),
+        ],
       },
     });
     c.tabs.query = vi.fn(async () => [
@@ -360,6 +364,37 @@ describe('the periodic sweep across containers', () => {
     expect(targets()).toEqual([5]); // the active one wins its store
   });
 
+  it('leaves a scope it owns no apps in alone, in either direction', async () => {
+    // The mirror of "never adopt a container": a user whose apps all live in a
+    // container clicks a My Apps link in the default context. Nothing is known
+    // under that scope, so nothing looks suspect, and every tile would be added
+    // a SECOND time as a container-less record with no history.
+    const c = await boot({ local: { apps: [contained('W', signin('w'), WORK)] } });
+    c.tabs.query = vi.fn(async () => [{ id: 1, cookieStoreId: 'firefox-default' }]);
+    c.tabs.get = vi.fn(async () => ({
+      status: 'complete',
+      active: true,
+      cookieStoreId: 'firefox-default',
+    }));
+    addTile('App 1', '1');
+    await c.alarms.onAlarm.emit({ name: 'beeline-sync' });
+    await runSync(180000);
+    expect(c.storage.local.set).not.toHaveBeenCalled();
+  });
+
+  it('never sweeps a private window', async () => {
+    // Its store is rejected by isContained, so the read would be scoped to the
+    // DEFAULT context — a different tenant reconciled against the ordinary list.
+    const c = await boot({ local: { apps: [app('Plain', signin('p'), 'myapps')] } });
+    c.tabs.query = vi.fn(async () => [
+      { id: 20, cookieStoreId: 'firefox-private', incognito: true },
+    ]);
+    addTile('App 1', '1');
+    await c.alarms.onAlarm.emit({ name: 'beeline-sync' });
+    await runSync(60000);
+    expect(c.scripting.executeScript).not.toHaveBeenCalled();
+  });
+
   it('skips discarded tabs but still sweeps their container', async () => {
     const c = await boot({ local: { apps: [contained('W', signin('w'), WORK)] } });
     c.tabs.query = vi.fn(async () => [
@@ -373,21 +408,28 @@ describe('the periodic sweep across containers', () => {
     expect(targets()).toEqual([8]);
   });
 
-  it('refuses a second walk while one is already running', async () => {
-    // The alarm sweep and a visit to the portal land in the same place. Two at
-    // once would scroll one tab's grid from two directions.
+  it('queues a second walk instead of running it, and instead of dropping it', async () => {
+    // Two at once would scroll one tab's grid from two directions. But throwing
+    // the second away is no better: a walk holds the lock for up to 90s per
+    // container, so an alarm landing mid-visit used to lose the whole sweep and
+    // wait a full period — six hours by default.
     const c = await boot();
     addTile('App 1', '1');
     await c.tabs.onUpdated.emit(11, { status: 'complete' }, { url: MYAPPS_URL });
     await vi.advanceTimersByTimeAsync(5000); // the visit sync is now mid-walk
-    const during = c.scripting.executeScript.mock.calls.length;
-    expect(during).toBeGreaterThan(0);
+    expect(c.scripting.executeScript.mock.calls.length).toBeGreaterThan(0);
 
     c.tabs.query = vi.fn(async () => [{ id: 99 }]);
     await c.alarms.onAlarm.emit({ name: 'beeline-sync' });
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(targets()).toEqual([11]); // tab 99 was never touched
-    await runSync(180000);
+    await runSync(300000);
+
+    // Both were walked — the second was queued, not thrown away…
+    expect(targets()).toEqual([11, 99]);
+    // …and they never interleaved: every injection into the first tab came
+    // before the first injection into the second, which is the whole point of
+    // the lock. Two loops on one grid make each other skip slices.
+    const order = c.scripting.executeScript.mock.calls.map((call) => call[0].target.tabId);
+    expect(order.lastIndexOf(11)).toBeLessThan(order.indexOf(99));
   });
 });
 

@@ -227,7 +227,9 @@ footer button {
  * same place as on an unmarked row, so a marked row never jogs sideways against
  * its neighbours: the padding always drops by whatever the border adds. */
 .item.contained {
-  --container-tint: color-mix(in srgb, var(--container, transparent) 22%, transparent);
+  /* Kept light on purpose: the selected row has to stay obviously selected on
+   * top of it, and the name chip is what actually identifies the container. */
+  --container-tint: color-mix(in srgb, var(--container, transparent) 14%, transparent);
 }
 
 /* Default: the whole row carries the colour. */
@@ -247,8 +249,36 @@ footer button {
   padding-left: 7px;
 }
 
-/* Whichever strength is on, the selected row keeps its own highlight: which row
- * you are about to open matters more than which container it belongs to. */
+/* Whichever strength is on, the selected row must stay obviously the selected
+ * one: which row Enter will open matters more than which container it belongs
+ * to. A tint and a selection wash are too close in luminance to tell apart on
+ * their own, so selection also gets a ring — visible over any container colour,
+ * in either theme. */
 #results .item.contained.selected {
   background: var(--accent-bg);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* The container's name, in its own colour: enough to tell two near-identical
+ * reds apart without reading the URL. Truncates rather than squeezing the app
+ * name, which is what you are actually searching for. */
+.cchip {
+  flex: 0 1 auto;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--container, var(--muted));
+  border: 1px solid var(--container, var(--border));
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+/* Same trap as the options page: .ctx sets `display: flex`, which beat the
+ * browser's own `[hidden] { display: none }` and left the right-click copy menu
+ * permanently drawn in the popup. */
+[hidden] {
+  display: none !important;
 }

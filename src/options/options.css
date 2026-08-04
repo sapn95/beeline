@@ -423,3 +423,11 @@ section h3:first-of-type {
   flex: 1 1 auto;
   min-width: 0;
 }
+
+/* `hidden` has to actually hide. An author-origin `display` beats the browser's
+ * own `[hidden] { display: none }` no matter how specific it is, so every
+ * .select we hide — the container picker, the filter, the marking style — was
+ * rendering on Chrome as a dead dropdown with no options in it. */
+[hidden] {
+  display: none !important;
+}

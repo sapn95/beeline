@@ -144,6 +144,11 @@ async function syncOpenTab() {
   const bestPerStore = new Map();
   for (const tab of tabs) {
     if (tab.discarded) continue;
+    // A private window has its own cookie store and its own sign-in. Reading it
+    // would be scoped to the DEFAULT context (isContained rejects private
+    // stores), so a different tenant's tiles would be reconciled against the
+    // ordinary list — and the window's session is gone by the next sweep anyway.
+    if (tab.incognito || String(tab.cookieStoreId ?? '').startsWith('firefox-private')) continue;
     const store = tab.cookieStoreId ?? '';
     const held = bestPerStore.get(store);
     if (!held || (tab.active && !held.active)) bestPerStore.set(store, tab);
@@ -169,14 +174,31 @@ function withTimeout(promise, ms) {
 // or hold two tabs open for minutes each. The manual import has its own,
 // separate claim (IMPORT_FLAG) because it runs in another page entirely.
 let syncing = false;
+const queued = new Set(); // tabs whose walk was blocked, retried when the lock frees
 
 async function syncTab(tabId) {
-  if (syncing) return;
+  // Blocked is not the same as done. A walk can hold the lock for a minute and a
+  // half per container, so the alarm firing mid-visit used to throw the ENTIRE
+  // sweep away and wait a full period — six hours by default — while the visit
+  // sync, the only trigger allowed to remove anything, could be dropped just as
+  // easily. Queue one retry instead; more than one waiting is the same request.
+  if (syncing) {
+    queued.add(tabId);
+    return;
+  }
   syncing = true;
   try {
     await syncTabLocked(tabId);
   } finally {
     syncing = false;
+  }
+  // Drain outside the lock, one at a time, and take each entry off the queue
+  // BEFORE running it so a tab that blocks again simply re-queues itself rather
+  // than spinning here.
+  const next = [...queued];
+  queued.clear();
+  for (const id of next) {
+    if (id !== tabId) await syncTab(id);
   }
 }
 
@@ -213,10 +235,16 @@ async function syncTabLocked(tabId) {
   // second time as container-pinned copies with new ids and no launch history —
   // the whole list, duplicated, in rows the sync has no `cookies` permission to
   // open in their container anyway.
-  if (container) {
-    const known = await getApps().catch(() => []);
-    if (!known.some((a) => a?.container === container)) return;
-  }
+  // Symmetrical, and it has to be: the danger runs BOTH ways. A user whose apps
+  // all live in the work container clicks a My Apps link in the default context
+  // — nothing is known under that scope, so nothing looks suspect, and every
+  // tile is added a SECOND time as a container-less record with a new id and no
+  // launch history. 100 apps become 200, half of them signing in as the wrong
+  // identity. So a scope with no apps of its own is simply not this sync's
+  // business; adopting one is the options page's job.
+  const known = await getApps().catch(() => []);
+  const owned = known.some((a) => (a?.container ?? '') === container);
+  if (!owned && known.length > 0) return;
 
   const scraped = await collectTilesFromTab(tabId, container);
   if (!scraped || scraped.length === 0) return;

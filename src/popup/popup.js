@@ -50,7 +50,13 @@ async function init() {
   // Focus before the storage read, not after: opening the popup and typing
   // immediately is the whole point, and a keystroke that lands before the list
   // is ready is then still in the box when the first render runs.
-  searchEl.focus();
+  //
+  // Asked for more than once on purpose. Firefox opens the panel and moves
+  // focus into it on its OWN schedule, and a focus() that lands before the
+  // panel has it is simply discarded — the popup then sits there swallowing
+  // every keystroke with nothing selected. Chrome takes the first one and the
+  // rest are no-ops.
+  focusSearch();
   try {
     // listContainers() is a local read that answers [] instantly on Chrome, so
     // it costs the first paint nothing and the rows can name their container
@@ -77,7 +83,18 @@ async function init() {
   resultsEl.dataset.container = settings.containerStyle || 'fill';
   emptyEl.hidden = apps.length > 0;
   render();
+  focusSearch(); // …and again once there is a list to type against
   await loadBookmarks();
+}
+
+/**
+ * Put the caret in the search box, now and on the next frame. See init(): on
+ * Firefox the panel takes focus asynchronously, and whoever gets there last
+ * wins — so this is deliberately not a one-shot.
+ */
+function focusSearch() {
+  searchEl.focus();
+  schedule(() => searchEl.focus());
 }
 
 // Bookmarks are optional and read live. Loading them AFTER the first paint
@@ -138,6 +155,12 @@ function wireEvents() {
   );
   resultsEl.addEventListener('scroll', closeCtxMenu);
   window.addEventListener('blur', closeCtxMenu);
+  // The panel can hand focus over after everything above has run. Take it back
+  // the moment that happens, or the first thing typed is lost.
+  window.addEventListener('focus', () => searchEl.focus());
+  // Clicking a row must not park focus on the row: this is a keyboard launcher
+  // and the next thing typed belongs in the box.
+  resultsEl.addEventListener('mouseup', () => searchEl.focus());
 }
 
 function render() {
@@ -299,13 +322,25 @@ function renderItem(r, i) {
   // the host, and these URLs carry the account, the tenant and the region — the
   // things you actually want to check before opening one of two near-identical
   // rows. The container is named here too, since its colour cannot spell itself.
-  li.title = [r.app.url, known ? `Opens in the ${known.name} container` : '']
+  li.title = [wrapForTooltip(r.app.url), known ? `Opens in the ${known.name} container` : '']
     .filter(Boolean)
     .join('\n');
   host.textContent = r.app.folder ? `${r.app.folder} · ${where}` : where;
   meta.append(name, host);
 
   li.append(icon, meta);
+  // The colour alone cannot carry this. Firefox's palette runs red / pink /
+  // orange, which blur into each other at a glance and are indistinguishable to
+  // a colour-blind reader — and this is a KEYBOARD launcher, so the tooltip that
+  // spells it out is never reached by the person most likely to need it. The
+  // name rides along in the container's own colour: colour to find the row,
+  // word to be sure of it.
+  if (known) {
+    const chip = document.createElement('span');
+    chip.className = 'cchip';
+    chip.textContent = known.name;
+    li.append(chip);
+  }
   li.addEventListener('click', () => launch(i));
   li.addEventListener('contextmenu', (e) => openCtxMenu(e, r.app, i)); // right-click → copy menu
   li.addEventListener('mousemove', () => {
@@ -315,6 +350,37 @@ function renderItem(r, i) {
     }
   });
   return li;
+}
+
+/**
+ * Break a long URL into lines for a `title` tooltip.
+ *
+ * A native tooltip does not wrap: one unbroken 400-character launch URL — and
+ * these carry the tenant, the account and a GUID — stretches the box to the far
+ * edge of the screen, where most of it is off-screen and what is left looks
+ * empty. Broken at 90 characters it stays a readable block. Split on the
+ * separators the URL already has, so a line ends somewhere meaningful instead
+ * of mid-GUID.
+ */
+function wrapForTooltip(url, width = 90) {
+  const text = String(url ?? '');
+  if (text.length <= width) return text;
+  const lines = [];
+  let line = '';
+  for (const part of text.split(/(?=[?&/#])/)) {
+    // A single part longer than the width is hard-cut: better a blunt break
+    // than one line running off the screen on its own.
+    for (let i = 0; i < part.length; i += width) {
+      const piece = part.slice(i, i + width);
+      if (line && line.length + piece.length > width) {
+        lines.push(line);
+        line = '';
+      }
+      line += piece;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.join('\n');
 }
 
 function renderFallbackItem(r, i) {
