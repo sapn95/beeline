@@ -213,6 +213,10 @@ function repaint() {
   selectedEl = null;
   painted = 0;
   paintMore(FIRST_CHUNK);
+  // Told the truth about whether there is a list at all: hard-coding "expanded"
+  // announced a listbox to a screen reader even when the popup was showing the
+  // empty panel instead.
+  searchEl.setAttribute('aria-expanded', current.length > 0 ? 'true' : 'false');
   updateSelection();
   scheduleTail();
 }
@@ -267,7 +271,18 @@ function showEmptyState() {
 
 async function reloadContainers() {
   containers = new Map((await listContainers()).map((c) => [c.cookieStoreId, c]));
+  // Keep whatever the user had arrowed onto. render() resets the selection to
+  // row 0, and a container renamed in another window would otherwise move the
+  // target out from under the next Enter — the same problem loadBookmarks()
+  // already solves, and for the same reason.
+  const picked = current[selected];
   render();
+  const i = picked ? current.findIndex((r) => isSameResult(r, picked)) : -1;
+  if (i > 0) {
+    selected = i;
+    ensureRendered(selected);
+    updateSelection();
+  }
 }
 
 /** The apps the launcher may list, after the settings' container pre-filter. */

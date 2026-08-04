@@ -1271,7 +1271,16 @@ describe('import from My Apps', () => {
     await click($('import-myapps'));
     await vi.advanceTimersByTimeAsync(6000);
     expect($('list').textContent).toMatch(/Waiting for you to sign in/);
+
+    // …and it KEEPS waiting. The portal has bounced us to Microsoft and there
+    // is nothing to read until a human types a password; spending the reading
+    // budget on that made every import from a fresh container fail and need
+    // starting again. Three minutes in, it is still holding the door open.
     await tick(180000);
+    expect(status()).toMatch(/Reading your apps/);
+
+    // It does give up eventually — the grace is ten minutes, not forever.
+    await tick(600000);
     expect(status()).toMatch(/No apps found/);
   });
 
@@ -1331,7 +1340,9 @@ describe('import from My Apps', () => {
       });
     });
     await click($('import-myapps'));
-    await tick(260000);
+    // Past the sign-in grace: a scrape that never answers looks exactly like a
+    // login screen from here, and waiting it out is now the first response.
+    await tick(800000);
     expect(stored().map((a) => a.name)).not.toContain('Late');
     expect(status()).toMatch(/No apps found/);
   });

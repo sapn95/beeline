@@ -25,6 +25,12 @@
  *   was never detected — a safety valve so a flaky bottom-signal can't spin to
  *   the deadline. Such a stop reports `complete:false` (merge-only, never removes).
  * @param {number|null} [io.deadline] - `Date.now()` cutoff; `null` = no deadline.
+ * @param {number} [io.signInGraceMs]
+ *   How long to keep waiting BEFORE the first tile is seen, without spending the
+ *   deadline or a round. This is the sign-in wait: the portal has bounced us to
+ *   Microsoft and nothing can be read until a human types a password. Counting
+ *   that against the reading budget made every import from a not-yet-signed-in
+ *   container fail and need starting again.
  * @returns {Promise<{apps:Array, rounds:number, complete:boolean, reachedBottom:boolean}>}
  *   `complete` is true only when we converged at the bottom — the caller may then
  *   safely remove apps that vanished. A timed-out / capped run returns
@@ -39,21 +45,35 @@ export async function accumulateApps({
   stepDelay = 400,
   noGrowthCap = 12,
   deadline = null,
+  signInGraceMs = 0,
 }) {
   const seen = new Map();
   let stable = 0;
   let noGrowth = 0;
   let rounds = 0;
   let reachedBottom = false;
+  // A round that reports "not ready" is almost always the sign-in page: the
+  // portal bounced us to Microsoft and there is nothing to read until a HUMAN
+  // types a password. That wait used to be spent out of the READING budget, so
+  // an import started before signing in — the normal case in a fresh container
+  // — burnt its two minutes on the login screen and then failed with "no apps
+  // found", and the user had to start it again. Waiting is not failing: the
+  // deadline is held off until the first tiles actually appear, for up to
+  // `signInGraceMs`, and the round is not counted either.
+  const graceUntil = signInGraceMs > 0 ? Date.now() + signInGraceMs : 0;
+  let sawTiles = false;
 
   for (; rounds < maxRounds && stable < stableLimit; rounds++) {
-    if (deadline !== null && Date.now() > deadline) break;
+    const waitingToSignIn = !sawTiles && Date.now() < graceUntil;
+    if (deadline !== null && !waitingToSignIn && Date.now() > deadline) break;
 
     const found = await scrapeRound(seen.size);
     if (found === null) {
       await sleep(1200); // not ready yet — wait and retry without counting it
+      rounds--; // …and without spending a round, or the grace runs out in 150
       continue;
     }
+    if (found.length > 0) sawTiles = true;
 
     const grew = addNew(seen, found);
     const remaining = await scrollRound();

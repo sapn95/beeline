@@ -322,6 +322,10 @@ async function collectTilesFromTab(tabId, container = '') {
       scrollRound: () => scrollStep(tabId),
       sleep: wait,
       deadline,
+      // No grace here, deliberately: this runs unattended against a tab the
+      // user did not open for us. If it is showing a login form, nobody is
+      // about to fill it in on our account — that is the manual import's job.
+      signInGraceMs: 0,
     });
     return apps.map((a) => ({ ...a, source: 'myapps', ...(container ? { container } : {}) }));
   } catch {

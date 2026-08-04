@@ -865,6 +865,11 @@ async function collectAllApps(tabId, onProgress) {
     maxRounds: 150,
     stableLimit: 5,
     deadline: Date.now() + 120000,
+    // Ten minutes to sign in, and none of it counted against the two minutes
+    // above. The helper window is open and on screen; the user is looking at a
+    // Microsoft login form. Failing them for taking a minute over it, and making
+    // them start the whole import again, was the wrong answer.
+    signInGraceMs: 600000,
   });
   return { apps: collected, complete, reachedBottom };
 }
@@ -1173,16 +1178,75 @@ function populateRegions() {
  * switched off reports none either, and a picker with one entry would be a
  * control that cannot do anything.
  */
+// Firefox fires these in bursts — creating one container emits create AND
+// update, and renaming several in a row emits one each. Two overlapping rebuilds
+// both cleared and both refilled, so every picker ended up with two of every
+// container and the page then showed the opposite of what was saved. One at a
+// time, with a single re-run queued for whatever arrived meanwhile.
+let refreshing = false;
+let refreshQueued = false;
+
 /** Rebuild every container-driven control after the browser's list changed. */
 async function refreshContainers() {
-  for (const id of ['import-container', 'add-container', 'filter-container', 'container-style']) {
-    document.getElementById(id).replaceChildren();
+  if (refreshing) {
+    refreshQueued = true;
+    return;
   }
-  document.getElementById('popup-containers').replaceChildren();
-  await populateContainers();
-  // The pickers were just rebuilt, so put the saved values back on them.
-  await loadSettings().catch(() => {});
+  refreshing = true;
+  // Settings must not be writable while the controls that speak for them are
+  // empty: `containerControlsReady()` would say no, and any change made in that
+  // window would write the page-load values back, undoing the user's filter.
+  const wasLoaded = settingsLoaded;
+  settingsLoaded = false;
+  // Remembered across the rebuild: replaceChildren() resets a <select> to its
+  // first option, which silently turned "filter on Work" into "all containers"
+  // with the list still filtered, and "import into Work" into "no container".
+  const keep = {
+    filter: containerFilter,
+    import: document.getElementById('import-container').value,
+    add: document.getElementById('add-container').value,
+  };
+  try {
+    for (const id of ['import-container', 'add-container', 'filter-container', 'container-style']) {
+      document.getElementById(id).replaceChildren();
+    }
+    document.getElementById('popup-containers').replaceChildren();
+    // Hidden again first: with the last container deleted, populateContainers
+    // returns early and the rows would otherwise stay visible but empty.
+    for (const id of [
+      'import-container-row',
+      'add-container-row',
+      'filter-container-wrap',
+      'container-style-row',
+      'popup-containers-row',
+    ]) {
+      document.getElementById(id).hidden = true;
+    }
+    await populateContainers();
+    // The pickers were just rebuilt, so put the saved values back on them.
+    await loadSettings().catch(() => {});
+    restoreIfStillThere('filter-container', keep.filter, (v) => {
+      containerFilter = v;
+    });
+    restoreIfStillThere('import-container', keep.import);
+    restoreIfStillThere('add-container', keep.add);
+  } finally {
+    settingsLoaded = wasLoaded;
+    refreshing = false;
+  }
   renderList(); // the chips carry container NAMES
+  if (refreshQueued) {
+    refreshQueued = false;
+    await refreshContainers();
+  }
+}
+
+/** Put a picker back on its old value, unless that container is now gone. */
+function restoreIfStillThere(id, value, also) {
+  const sel = document.getElementById(id);
+  const has = [...sel.options].some((o) => o.value === value);
+  sel.value = has ? value : sel.options[0]?.value || '';
+  also?.(sel.value);
 }
 
 async function populateContainers() {

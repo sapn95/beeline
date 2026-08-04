@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { accumulateApps } from '../src/lib/collector.js';
 
 // Simulate the exact field failure: a *virtualised* grid that holds `total`
@@ -264,5 +264,73 @@ describe('accumulateApps', () => {
     });
     expect(progress[0]).toBe(0); // first round starts from nothing
     expect(Math.max(...progress)).toBe(60); // later rounds see the full set
+  });
+});
+
+describe('waiting for a sign-in is not failing', () => {
+  it('holds off the deadline until the first tiles appear', async () => {
+    // The portal bounces a not-yet-signed-in container to Microsoft, and there
+    // is nothing to read until a human types a password. Spending the READING
+    // budget on that made the import fail and need starting again.
+    let now = 0;
+    const clock = () => now;
+    const spy = vi.spyOn(Date, 'now').mockImplementation(clock);
+    try {
+      let round = 0;
+      const out = await accumulateApps({
+        // Not ready for the first ten rounds — i.e. the login screen.
+        scrapeRound: async () => {
+          round += 1;
+          return round <= 10 ? null : [{ url: `https://app${round}.example.com/` }];
+        },
+        scrollRound: async () => 0,
+        sleep: async (ms) => {
+          now += ms;
+        },
+        deadline: 5000, // long gone by the time sign-in finishes
+        signInGraceMs: 600000,
+      });
+      expect(out.apps.length).toBeGreaterThan(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('still gives up when the grace itself runs out', async () => {
+    let now = 0;
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      const out = await accumulateApps({
+        scrapeRound: async () => null, // never signs in
+        scrollRound: async () => 0,
+        sleep: async (ms) => {
+          now += ms;
+        },
+        deadline: 1000,
+        signInGraceMs: 5000,
+      });
+      expect(out.apps).toEqual([]);
+      expect(out.complete).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('leaves the unattended background read with no grace at all', async () => {
+    let now = 0;
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      const out = await accumulateApps({
+        scrapeRound: async () => null,
+        scrollRound: async () => 0,
+        sleep: async (ms) => {
+          now += ms;
+        },
+        deadline: 1000,
+      });
+      expect(out.rounds).toBe(0); // gave up on the first check
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

@@ -308,7 +308,10 @@ footer button {
    * sits in one end of a half-empty pill. */
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  /* NOT centred: a flex item wider than its box overflows symmetrically, so a
+   * long container name would be clipped at BOTH ends. The floor pads a short
+   * name out instead — a little slack beats losing the first letters. */
+  justify-content: flex-start;
   gap: 5px;
 }
 

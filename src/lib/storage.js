@@ -178,7 +178,10 @@ export async function saveSettings(settings) {
   }
   const area = syncArea();
   const local = localArea();
-  if (area) await area.set({ [SETTINGS_KEY]: synced });
+  // Local first. The synced write is the fragile one — it has a per-minute
+  // write quota and can reject — and doing it first meant a quota error threw
+  // away the container setting that was never going to fail.
   if (local) await local.set({ [LOCAL_SETTINGS_KEY]: here });
-  return merged;
+  if (area) await area.set({ [SETTINGS_KEY]: synced });
+  return { ...synced, ...here };
 }
