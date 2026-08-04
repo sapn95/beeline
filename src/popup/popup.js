@@ -170,6 +170,11 @@ function wireEvents() {
   });
   resultsEl.addEventListener('scroll', closeCtxMenu);
   window.addEventListener('blur', closeCtxMenu);
+  // Rename a container and the rows should say so at once, not after a reload.
+  const ids = globalThis.browser?.contextualIdentities ?? globalThis.chrome?.contextualIdentities;
+  for (const event of ['onUpdated', 'onCreated', 'onRemoved']) {
+    ids?.[event]?.addListener?.(reloadContainers);
+  }
   // The panel can hand focus over after everything above has run. Take it back
   // the moment that happens, or the first thing typed is lost.
   window.addEventListener('focus', () => searchEl.focus());
@@ -260,6 +265,11 @@ function showEmptyState() {
   if (btn) btn.textContent = filteredOut ? 'Change that in settings' : 'Add or import apps';
 }
 
+async function reloadContainers() {
+  containers = new Map((await listContainers()).map((c) => [c.cookieStoreId, c]));
+  render();
+}
+
 /** The apps the launcher may list, after the settings' container pre-filter. */
 function visibleApps() {
   const hidden = new Set(settings.hiddenContainers ?? []);
@@ -338,6 +348,12 @@ function renderItem(r, i) {
   const li = document.createElement('li');
   li.className = 'item';
   li.dataset.index = String(i);
+  // Announced as a listbox option. Focus stays in the search box — this is a
+  // keyboard launcher — so "which row is selected" can only reach a screen
+  // reader through aria-selected plus aria-activedescendant on the input.
+  li.id = `row-${i}`;
+  li.setAttribute('role', 'option');
+  li.setAttribute('aria-selected', 'false');
 
   const icon = document.createElement('span');
   icon.className = 'icon';
@@ -467,6 +483,9 @@ function renderFallbackItem(r, i) {
   const li = document.createElement('li');
   li.className = 'item';
   li.dataset.index = String(i);
+  li.id = `row-${i}`;
+  li.setAttribute('role', 'option');
+  li.setAttribute('aria-selected', 'false');
 
   const icon = document.createElement('span');
   icon.className = 'icon letter';
@@ -561,10 +580,19 @@ function move(delta) {
 
 function updateSelection({ scroll = true } = {}) {
   const el = resultsEl.children[selected] || null;
-  if (selectedEl && selectedEl !== el) selectedEl.classList.remove('selected');
+  if (selectedEl && selectedEl !== el) {
+    selectedEl.classList.remove('selected');
+    selectedEl.setAttribute('aria-selected', 'false');
+  }
   selectedEl = el;
-  if (!el) return;
+  if (!el) {
+    searchEl.removeAttribute('aria-activedescendant');
+    return;
+  }
   el.classList.add('selected');
+  el.setAttribute('aria-selected', 'true');
+  // What the screen reader reads out as the caret stays in the search box.
+  searchEl.setAttribute('aria-activedescendant', el.id);
   if (scroll) el.scrollIntoView({ block: 'nearest' });
 }
 

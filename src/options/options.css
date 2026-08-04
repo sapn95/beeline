@@ -325,6 +325,11 @@ kbd {
 
 .badge {
   min-width: calc(6ch + 18px); /* border-box: the padding and border are inside */
+  /* Centred: the floor pads a short name out, and left-aligned text would then
+   * sit in one end of a half-empty pill. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
   font-size: 11px;
   color: var(--accent);

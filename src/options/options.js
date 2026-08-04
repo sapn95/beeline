@@ -113,6 +113,13 @@ function wireControls() {
   document.getElementById('sync-on-visit').addEventListener('change', onSettingChange);
   document.getElementById('container-style').addEventListener('change', onSettingChange);
   document.getElementById('change-shortcut').addEventListener('click', onChangeShortcut);
+  // A container renamed, added or deleted in Firefox's own settings should show
+  // up here at once: every picker and every chip on this page is built from
+  // that list, and until now they went stale until the page was reloaded.
+  const ids = globalThis.browser?.contextualIdentities ?? globalThis.chrome?.contextualIdentities;
+  for (const event of ['onUpdated', 'onCreated', 'onRemoved']) {
+    ids?.[event]?.addListener?.(refreshContainers);
+  }
   statusEl.addEventListener('click', () => setStatus(''));
   // Esc dismisses it as well. <output> is a live region rather than a control,
   // so keeping it out of the tab order costs a keyboard user their way out —
@@ -1166,6 +1173,18 @@ function populateRegions() {
  * switched off reports none either, and a picker with one entry would be a
  * control that cannot do anything.
  */
+/** Rebuild every container-driven control after the browser's list changed. */
+async function refreshContainers() {
+  for (const id of ['import-container', 'add-container', 'filter-container', 'container-style']) {
+    document.getElementById(id).replaceChildren();
+  }
+  document.getElementById('popup-containers').replaceChildren();
+  await populateContainers();
+  // The pickers were just rebuilt, so put the saved values back on them.
+  await loadSettings().catch(() => {});
+  renderList(); // the chips carry container NAMES
+}
+
 async function populateContainers() {
   const sel = document.getElementById('import-container');
   const row = document.getElementById('import-container-row');

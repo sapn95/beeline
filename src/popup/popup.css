@@ -303,9 +303,12 @@ footer button {
   border: 1px solid var(--container, var(--border));
   border-radius: 999px;
   padding: 1px 8px;
-  /* The dot carries the hue. */
+  /* The dot carries the hue. Centred, because the floor above pads a short name
+   * like "IT" out to five characters' worth of box, and left-aligned text then
+   * sits in one end of a half-empty pill. */
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
 }
 

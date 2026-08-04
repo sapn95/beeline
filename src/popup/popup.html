@@ -18,8 +18,14 @@
         autocorrect="off"
         spellcheck="false"
         aria-label="Search apps"
+        role="combobox"
+        aria-expanded="true"
+        aria-controls="results"
       />
-      <ul id="results" aria-label="Apps"></ul>
+      <!-- A listbox the search box drives: the caret never leaves the input, so
+           the selected row is announced through aria-activedescendant rather
+           than by moving focus. -->
+      <ul id="results" role="listbox" aria-label="Apps"></ul>
       <div id="empty" hidden>
         <p>No apps yet.</p>
         <button id="manage" type="button">Add or import apps</button>

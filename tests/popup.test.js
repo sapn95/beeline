@@ -970,3 +970,27 @@ describe('the launcher container pre-filter', () => {
     expect(rows().length).toBeGreaterThan(0);
   });
 });
+
+describe('what a screen reader is told', () => {
+  it('announces the selected row without moving the caret', async () => {
+    // The caret never leaves the search box — that is the whole point of a
+    // keyboard launcher — so "which row is selected" can only travel through
+    // aria-selected plus aria-activedescendant.
+    await mount();
+    const search = document.getElementById('search');
+    expect(document.getElementById('results').getAttribute('role')).toBe('listbox');
+    expect(rows()[0].getAttribute('role')).toBe('option');
+    expect(rows()[0].getAttribute('aria-selected')).toBe('true');
+    expect(search.getAttribute('aria-activedescendant')).toBe(rows()[0].id);
+
+    press(search, 'ArrowDown');
+    expect(rows()[0].getAttribute('aria-selected')).toBe('false');
+    expect(rows()[1].getAttribute('aria-selected')).toBe('true');
+    expect(search.getAttribute('aria-activedescendant')).toBe(rows()[1].id);
+  });
+
+  it('drops the pointer when there is no row to point at', async () => {
+    await mount({ chrome: { local: { apps: [] } } });
+    expect(document.getElementById('search').getAttribute('aria-activedescendant')).toBeNull();
+  });
+});
