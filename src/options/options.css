@@ -379,7 +379,11 @@ kbd {
 }
 
 .filter-row #app-filter {
-  flex: 1 1 auto;
+  /* width:100% above would be this item's flex basis, and .row wraps — so the
+   * dropdown would be pushed onto a line of its own. A zero basis lets the box
+   * take the space that is actually left instead of claiming all of it first. */
+  width: auto;
+  flex: 1 1 220px;
   min-width: 0;
 }
 
