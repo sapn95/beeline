@@ -32,6 +32,15 @@ let editingId = null;
 let editDraft = null; // {name, url} in-progress edit, preserved across re-renders
 let appFilter = '';
 let containerFilter = 'all'; // 'all' | '' (no container) | a cookieStoreId
+// Rows are built in chunks, exactly as the popup does it. With 1160 apps a
+// single unfiltered render is 1160 <li>, ~9000 elements and 2300 listeners —
+// several frames of work, on every keystroke. The first slice covers the screen;
+// the rest streams in and is thrown away the moment the filter changes again.
+const FIRST_ROWS = 40;
+const TAIL_ROWS = 120;
+let rowsPainted = 0;
+let rowTail = null;
+let pending = [];
 let pendingAppsRefresh = false; // a storage change arrived while editing — apply it on exit
 let containerInfo = new Map(); // cookieStoreId -> {name, color}, for the row chips
 let settingsLoaded = false; // until the form holds the SAVED settings, never write it back
@@ -334,11 +343,47 @@ function renderList() {
     return;
   }
 
-  const rows = filtered
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((app) => (app.id === editingId ? renderEditRow(app) : renderRow(app)));
-  listEl.replaceChildren(...rows);
+  pending = filtered.slice().sort((a, b) => a.name.localeCompare(b.name));
+  cancelRowTail();
+  listEl.replaceChildren();
+  rowsPainted = 0;
+  paintRows(FIRST_ROWS);
+  scheduleRowTail();
+}
+
+function paintRows(n) {
+  const end = Math.min(pending.length, rowsPainted + n);
+  if (end === rowsPainted) return;
+  const frag = document.createDocumentFragment();
+  for (let i = rowsPainted; i < end; i++) {
+    const app = pending[i];
+    frag.append(app.id === editingId ? renderEditRow(app) : renderRow(app));
+  }
+  listEl.append(frag);
+  rowsPainted = end;
+}
+
+function scheduleRowTail() {
+  if (rowTail !== null || rowsPainted >= pending.length) return;
+  const raf = globalThis.requestAnimationFrame;
+  rowTail = raf ? raf(runRowTail) : setTimeout(runRowTail, 0);
+}
+
+function runRowTail() {
+  rowTail = null;
+  paintRows(TAIL_ROWS);
+  scheduleRowTail();
+}
+
+function cancelRowTail() {
+  if (rowTail === null) return;
+  // Cancelled with whichever canceller matches the scheduler that was used.
+  if (globalThis.requestAnimationFrame && globalThis.cancelAnimationFrame) {
+    cancelAnimationFrame(rowTail);
+  } else {
+    clearTimeout(rowTail);
+  }
+  rowTail = null;
 }
 
 function renderRow(app) {

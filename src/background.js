@@ -242,9 +242,10 @@ async function syncTabLocked(tabId) {
   // launch history. 100 apps become 200, half of them signing in as the wrong
   // identity. So a scope with no apps of its own is simply not this sync's
   // business; adopting one is the options page's job.
-  const known = await getApps().catch(() => []);
-  const owned = known.some((a) => (a?.container ?? '') === container);
-  if (!owned && known.length > 0) return;
+  // NOTE: the scope check itself happens inside the mutator below, against the
+  // list mutateApps already holds. Reading the whole list here as well meant two
+  // full reads per container per sync — 537 KiB each on a real profile, four
+  // times over on a four-container sweep.
 
   const scraped = await collectTilesFromTab(tabId, container);
   if (!scraped || scraped.length === 0) return;
@@ -264,6 +265,13 @@ async function syncTabLocked(tabId) {
   // page so neither clobbers the other.
   try {
     await mutateApps((existing) => {
+      // A scope that owns no apps is not this sync's business, in EITHER
+      // direction: adopting a container would duplicate the list, and so would a
+      // default-context read of a list that lives entirely inside one. Adopting
+      // is the options page's job. Checked here, on the freshest list, rather
+      // than on a second copy read moments earlier.
+      const owned = existing.some((a) => (a?.container ?? '') === container);
+      if (!owned && existing.length > 0) return undefined;
       const next =
         foreground && !isSuspectRead(existing, scraped, { container })
           ? applySyncRead(existing, scraped, { container }).apps
