@@ -25,6 +25,12 @@
           Pull your apps straight from the Microsoft My Apps portal. You will be asked to grant
           access to <code>myapplications.microsoft.com</code> the first time.
         </p>
+        <!-- Firefox containers only: hidden entirely when the browser has none,
+             which is every Chromium build and a Firefox with the feature off. -->
+        <label id="import-container-row" class="select inline" hidden>
+          Read
+          <select id="import-container"></select>
+        </label>
         <div class="row">
           <button id="import-myapps" type="button">Import from My Apps</button>
           <button id="export" type="button">Export JSON</button>

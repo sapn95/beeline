@@ -2,6 +2,7 @@ import { getApps, getStats, getSettings, recordLaunch } from '../lib/storage.js'
 import { rankApps, hostOf } from '../lib/ranking.js';
 import { withAwsRegion } from '../lib/apps.js';
 import { loadBookmarkItems } from '../lib/bookmarks.js';
+import { withContainer, listContainers } from '../lib/containers.js';
 
 const searchEl = document.getElementById('search');
 const resultsEl = document.getElementById('results');
@@ -22,6 +23,7 @@ let settings = {
   awsRegion: '',
   includeBookmarks: false,
 };
+let containers = new Map(); // cookieStoreId -> display name (Firefox only)
 let current = [];
 let selected = 0;
 let selectedEl = null; // the highlighted row, kept so selection never walks the whole list
@@ -49,7 +51,17 @@ async function init() {
   // is ready is then still in the box when the first render runs.
   searchEl.focus();
   try {
-    [apps, stats, settings] = await Promise.all([getApps(), getStats(), getSettings()]);
+    // listContainers() is a local read that answers [] instantly on Chrome, so
+    // it costs the first paint nothing and the rows can name their container
+    // straight away rather than filling in a beat later.
+    const [a, st, se, cs] = await Promise.all([
+      getApps(),
+      getStats(),
+      getSettings(),
+      listContainers(),
+    ]);
+    [apps, stats, settings] = [a, st, se];
+    containers = new Map(cs.map((c) => [c.cookieStoreId, c.name]));
   } catch {
     /* storage unavailable — fall back to the defaults above rather than a blank popup */
   }
@@ -262,8 +274,13 @@ function renderItem(r, i) {
   host.className = 'host';
   const where = hostOf(r.app.url) || r.app.url;
   // A bookmark says where it lives, so two similarly-named ones stay tellable
-  // apart ("Work › Tickets · jira.example.com").
-  host.textContent = r.app.folder ? `${r.app.folder} · ${where}` : where;
+  // apart ("Work › Tickets · jira.example.com"). A contained app says WHICH
+  // container, for the same reason and more urgently: the same tile imported
+  // from two containers is two rows that are otherwise identical, and picking
+  // the wrong one signs in as the wrong person.
+  const from =
+    r.app.folder || (r.app.container ? containers.get(r.app.container) || r.app.container : '');
+  host.textContent = from ? `${from} · ${where}` : where;
   meta.append(name, host);
 
   li.append(icon, meta);
@@ -396,12 +413,23 @@ async function launch(i, background = false) {
     // AWS console, which takes a plain ?region=.
     samlRelayState: r.app.source !== 'bookmark',
   });
+  // `container` is a Firefox cookie store id, and an app imported inside one
+  // signs in as that container's identity — opening it anywhere else lands on
+  // the wrong account, or a login screen. withContainer drops the option on
+  // Chrome and whenever the `cookies` permission is missing, because Firefox
+  // rejects the whole call then and "nothing happens" is worse than "opened in
+  // the default container".
+  const opened = await withContainer({ url: target }, r.app.container);
   if (background) {
-    chrome.tabs.create({ url: target, active: false });
+    chrome.tabs.create({ ...opened, active: false });
     return; // keep the popup open so you can launch several in a row
   }
   if (settings.openInNewTab) {
-    chrome.tabs.create({ url: target });
+    chrome.tabs.create(opened);
+  } else if (r.app.container) {
+    // tabs.update cannot move a tab between containers, so an app that belongs
+    // to one always gets its own tab, whatever the setting says.
+    chrome.tabs.create(opened);
   } else {
     chrome.tabs.update({ url: target });
   }

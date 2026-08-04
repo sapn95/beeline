@@ -415,3 +415,63 @@ describe('migrateStats', () => {
     expect(migrateStats([app(clean)], null)).toBeNull();
   });
 });
+
+describe('containers', () => {
+  const WORK = 'firefox-container-2';
+  const HOME = 'firefox-container-3';
+  const tile = (n) => ({ name: `App ${n}`, url: `https://app${n}.example.com/` });
+  const inC = (n, container) => ({ ...tile(n), source: 'myapps', container });
+
+  it('makes the same tile in two containers two apps', () => {
+    // They sign in as different identities and land somewhere else. Collapsing
+    // them would make one of the two accounts disappear from the launcher.
+    expect(appId(tile(1).url, WORK)).not.toBe(appId(tile(1).url, HOME));
+    const both = normalizeAppList([inC(1, WORK), inC(1, HOME)]);
+    expect(both).toHaveLength(2);
+  });
+
+  it('leaves an app with no container hashed exactly as before', () => {
+    // Everything anyone already has must keep the id it has today, or every
+    // launch statistic is orphaned by an update that changed nothing for them.
+    const url = tile(1).url;
+    expect(appId(url)).toBe(appId(url, ''));
+    expect(appId(url)).toBe(appId(url, 'firefox-default'));
+    expect(normalizeApp(tile(1)).container).toBeUndefined();
+  });
+
+  it('never pins an app to a private window', () => {
+    // That store is gone when the window closes, so the app would be orphaned.
+    expect(normalizeApp({ ...tile(1), container: 'firefox-private' }).container).toBeUndefined();
+  });
+
+  it('reconciles ONLY the container that was read', () => {
+    // The one way this can destroy something: importing the work container must
+    // not look like every personal-container app has vanished.
+    const existing = [inC(1, WORK), inC(2, WORK), inC(3, HOME), { ...tile(4), source: 'myapps' }];
+    const out = reconcileApps(existing, [tile(1)], { container: WORK });
+    const names = out.map((a) => a.name).sort();
+    expect(names).toEqual(['App 1', 'App 3', 'App 4']); // only App 2 (work) went
+    expect(out.find((a) => a.name === 'App 3').container).toBe(HOME);
+  });
+
+  it('strikes ONLY the container that was read', () => {
+    const existing = [inC(1, WORK), inC(2, WORK), inC(3, HOME)];
+    const { apps } = applySyncRead(existing, [tile(1)], { container: WORK });
+    expect(apps.find((a) => a.name === 'App 2').missing).toBe(1);
+    expect(apps.find((a) => a.name === 'App 3').missing).toBeUndefined();
+  });
+
+  it('judges a read suspect against its own container only', () => {
+    // 20 apps in HOME and 2 in WORK: reading WORK and finding both is a
+    // complete read, not a read that lost 20 apps.
+    const home = Array.from({ length: 20 }, (_, i) => inC(`h${i}`, HOME));
+    const existing = [...home, inC(1, WORK), inC(2, WORK)];
+    expect(isSuspectRead(existing, [tile(1), tile(2)], { container: WORK })).toBe(false);
+  });
+
+  it('tags a scrape with the container it was read from', () => {
+    const out = reconcileApps([], [tile(1)], { container: WORK });
+    expect(out[0].container).toBe(WORK);
+    expect(out[0].id).toBe(appId(tile(1).url, WORK));
+  });
+});

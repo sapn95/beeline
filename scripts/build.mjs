@@ -50,6 +50,20 @@ if (firefox) {
   // permission just earns an AMO warning, and the popup already falls back to
   // the letter tile when the image does not load.
   manifest.permissions = manifest.permissions.filter((p) => p !== 'favicon');
+  // Containers are a Firefox feature with no Chrome counterpart.
+  //
+  // `contextualIdentities` CANNOT be optional — Firefox's own schema lists it
+  // under Permission and not OptionalPermission — so it is required here and
+  // costs one "accept the new permission" prompt on the update that adds it.
+  // Without it the container list has no names, only opaque store ids.
+  //
+  // `cookies` is what actually opens a tab in a container (tabs.create and
+  // windows.create only honour cookieStoreId with it). It stays OPTIONAL: it is
+  // on Firefox's silently-granted list, so asking for it when the feature is
+  // first used costs the user nothing and an install that never touches
+  // containers never holds it.
+  manifest.permissions = [...manifest.permissions, 'contextualIdentities'];
+  manifest.optional_permissions = [...(manifest.optional_permissions ?? []), 'cookies'];
 }
 
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);

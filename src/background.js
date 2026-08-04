@@ -28,6 +28,7 @@ import {
   SETTINGS_KEY,
 } from './lib/storage.js';
 import { accumulateApps } from './lib/collector.js';
+import { isContained } from './lib/containers.js';
 
 const MYAPPS_PREFIX = 'https://myapplications.microsoft.com/';
 const MYAPPS_PATTERN = 'https://myapplications.microsoft.com/*';
@@ -162,21 +163,23 @@ async function syncTab(tabId) {
   // A background tab's My Apps SPA throttles or skips rendering its virtualised
   // grid entirely, so a walk of it can come back short through no fault of the
   // user's — exactly the read that must never be allowed to remove anything.
-  const onScreen = () =>
-    chrome.tabs
-      .get(tabId)
-      .then((t) => !!t?.active)
-      .catch(() => false);
-  const wasForeground = await onScreen();
+  const info = () => chrome.tabs.get(tabId).catch(() => null);
+  const first = await info();
+  const wasForeground = !!first?.active;
+  // Which container this tab lives in decides which slice of the app list the
+  // read is allowed to speak for. A My Apps tab in the work container is signed
+  // in as that identity and lists only its tiles — reconciled against the whole
+  // list it would look like every other container's apps had vanished.
+  const container = isContained(first?.cookieStoreId) ? first.cookieStoreId : '';
 
-  const scraped = await collectTilesFromTab(tabId);
+  const scraped = await collectTilesFromTab(tabId, container);
   if (!scraped || scraped.length === 0) return;
 
   // Asked again AFTER the walk, because the walk owns the tab for up to
   // READ_BUDGET_MS and the user is free to switch away in the middle of it. A
   // tab that started in front and finished behind was throttled for part of the
   // read, which is exactly the short read this rail exists to distrust.
-  const foreground = wasForeground && (await onScreen());
+  const foreground = wasForeground && !!(await info())?.active;
 
   // When a read may remove, on top of the non-empty check above:
   //   1. the tab was in the foreground, so the grid really rendered;
@@ -188,8 +191,8 @@ async function syncTab(tabId) {
   try {
     await mutateApps((existing) => {
       const next =
-        foreground && !isSuspectRead(existing, scraped)
-          ? applySyncRead(existing, scraped).apps
+        foreground && !isSuspectRead(existing, scraped, { container })
+          ? applySyncRead(existing, scraped, { container }).apps
           : mergeApps(existing, scraped);
       return JSON.stringify(next) === JSON.stringify(existing) ? undefined : next;
     });
@@ -203,7 +206,7 @@ async function syncTab(tabId) {
 // what is gone. Returns the tiles (tagged 'myapps'), or null when the page isn't
 // ready. The bottom signal is NOT required: what matters here is how much of the
 // grid was seen, which applySyncRead's rails judge for themselves.
-async function collectTilesFromTab(tabId) {
+async function collectTilesFromTab(tabId, container = '') {
   const deadline = Date.now() + READ_BUDGET_MS;
   try {
     const { apps } = await accumulateApps({
@@ -212,7 +215,7 @@ async function collectTilesFromTab(tabId) {
       sleep: wait,
       deadline,
     });
-    return apps.map((a) => ({ ...a, source: 'myapps' }));
+    return apps.map((a) => ({ ...a, source: 'myapps', ...(container ? { container } : {}) }));
   } catch {
     return null; // sign-in origin / page not ready
   }

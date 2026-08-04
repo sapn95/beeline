@@ -2,6 +2,8 @@
 // Pure functions only — no chrome / DOM dependencies — so they are fully
 // unit-testable and safe to import from both the popup and the options page.
 
+import { isContained } from './containers.js';
+
 /** Only https URLs are accepted — SSO apps are always https, and this keeps
  * the launcher from storing or opening plain-http targets (security default). */
 export function isValidHttpsUrl(value) {
@@ -105,10 +107,20 @@ export function fnv1a(s) {
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
-/** Stable, dependency-free id derived from the canonical URL.
- * Same URL always yields the same id, so launch stats survive re-imports. */
-export function appId(url) {
-  return fnv1a(canonicalUrl(url));
+/** Stable, dependency-free id derived from the canonical URL — and, on Firefox,
+ * from the container it belongs to.
+ *
+ * The same URL always yields the same id, so launch stats survive re-imports.
+ * A container is folded in because the SAME tile in two containers is two
+ * different things: it signs in as a different identity and lands somewhere
+ * else. Without it the second import would collapse onto the first and one of
+ * the two accounts would silently disappear from the launcher.
+ *
+ * The default (container-less) store is deliberately hashed exactly as before,
+ * so every app anyone already has keeps the id it has today. */
+export function appId(url, container) {
+  const canonical = canonicalUrl(url);
+  return fnv1a(isContained(container) ? `${canonical}\n${container}` : canonical);
 }
 
 /** Coerce raw input (manual entry or scraped tile) into a clean app record, or
@@ -125,8 +137,12 @@ export function normalizeApp(raw) {
   const url = String(raw.url ?? '').trim();
   if (!name || !isValidHttpsUrl(url)) return null;
 
+  // Which container this app belongs to (Firefox only). Kept before the id is
+  // computed, because it is PART of the id — see appId.
+  const container = isContained(raw.container) ? raw.container : '';
   // Identity ignores the fragment; the launch URL keeps it.
-  const app = { id: appId(url), name, url: normalizeUrl(url) };
+  const app = { id: appId(url, container), name, url: normalizeUrl(url) };
+  if (container) app.container = container;
   const icon = String(raw.iconUrl ?? '').trim();
   if (icon && isValidHttpsUrl(icon)) app.iconUrl = icon;
   // Provenance: 'manual' (user added/edited) or 'myapps' (scraped). Drives
@@ -215,10 +231,23 @@ export function mergeApps(existing, incoming) {
  * - previously-scraped apps that are no longer present are dropped;
  * - newly-seen apps are added, tagged 'myapps'.
  * Callers MUST skip this on an empty/failed scrape, or it would wipe the
- * scraped set. Existing (manual) records win on id conflict. */
-export function reconcileApps(existing, scraped) {
+ * scraped set. Existing (manual) records win on id conflict.
+ *
+ * `container` scopes the whole operation, and getting that wrong is the one way
+ * this can destroy something: a scrape only ever sees ONE container's My Apps,
+ * so apps belonging to any OTHER container are none of its business. Importing
+ * the work container would otherwise wipe every app of the personal one. */
+export function reconcileApps(existing, scraped, { container = '' } = {}) {
+  const scope = isContained(container) ? container : '';
+  const inScope = (a) => (a.container ?? '') === scope;
   const normExisting = normalizeAppList(existing);
-  const incoming = normalizeAppList(scraped).map((a) => ({ ...a, source: 'myapps' }));
+  const incoming = normalizeAppList(scraped)
+    .map((a) => ({
+      ...a,
+      source: 'myapps',
+      ...(scope ? { container: scope } : {}),
+    }))
+    .map((a) => normalizeApp(a));
   const incomingIds = new Set(incoming.map((a) => a.id));
   // Legacy untagged records (no source), keyed by id, so that when we re-tag one
   // as 'myapps' below we keep ITS (possibly user-customised) name/icon rather
@@ -229,7 +258,11 @@ export function reconcileApps(existing, scraped) {
   // untagged app that still appears in My Apps is dropped here so the re-tagged
   // record below replaces it (making it prunable on later syncs).
   const kept = normExisting.filter(
-    (a) => a.source === 'manual' || (a.source !== 'myapps' && !incomingIds.has(a.id)),
+    (a) =>
+      a.source === 'manual' ||
+      // Another container's apps: this scrape never looked at them.
+      !inScope(a) ||
+      (a.source !== 'myapps' && !incomingIds.has(a.id)),
   );
   const map = new Map(kept.map((a) => [a.id, a]));
   for (const app of incoming) {
@@ -265,18 +298,28 @@ function unmarked(app) {
  * @param {number} [strikes] consecutive misses before an app is dropped.
  * @returns {{apps: Array, removed: Array}} the new list, and what fell out of it.
  */
-export function applySyncRead(existing, scraped, { strikes = 2 } = {}) {
+export function applySyncRead(existing, scraped, { strikes = 2, container = '' } = {}) {
+  // Scoped exactly like reconcileApps: a My Apps tab lives in ONE container, so
+  // a read of it says nothing whatsoever about any other container's apps.
+  const scope = isContained(container) ? container : '';
+  const inScope = (a) => (a.container ?? '') === scope;
   // The count has to be reachable: normalizeApp caps a stored `missing` at 9, so
   // a threshold above that would never be met and the app would simply never be
   // removed — a silent no-op rather than a loud mistake. Clamp instead.
   const limit = Math.min(Math.max(Math.trunc(strikes) || 1, 1), 9);
-  const incoming = normalizeAppList(scraped).map((a) => ({ ...a, source: 'myapps' }));
+  const incoming = normalizeAppList(
+    normalizeAppList(scraped).map((a) => ({
+      ...a,
+      source: 'myapps',
+      ...(scope ? { container: scope } : {}),
+    })),
+  );
   const seen = new Set(incoming.map((a) => a.id));
   const apps = [];
   const removed = [];
   for (const app of mergeApps(existing, incoming)) {
-    if (app.source !== 'myapps' || seen.has(app.id)) {
-      apps.push(unmarked(app)); // still there, or not ours to prune
+    if (app.source !== 'myapps' || !inScope(app) || seen.has(app.id)) {
+      apps.push(unmarked(app)); // still there, another container's, or not ours
       continue;
     }
     const strike = (app.missing ?? 0) + 1;
@@ -304,10 +347,21 @@ export function applySyncRead(existing, scraped, { strikes = 2 } = {}) {
  * @param {number} [floor] never suspect while at most this many are absent, so a
  *   short list is not held hostage by a percentage.
  */
-export function isSuspectRead(existing, scraped, { maxMissingRatio = 0.1, floor = 5 } = {}) {
-  const known = normalizeAppList(existing).filter((a) => a.source === 'myapps');
+export function isSuspectRead(
+  existing,
+  scraped,
+  { maxMissingRatio = 0.1, floor = 5, container = '' } = {},
+) {
+  const scope = isContained(container) ? container : '';
+  // Only this container's apps are at stake, so only they count towards "how
+  // much of the list did this read fail to find".
+  const known = normalizeAppList(existing).filter(
+    (a) => a.source === 'myapps' && (a.container ?? '') === scope,
+  );
   if (known.length === 0) return false; // nothing to lose yet
-  const seen = new Set(normalizeAppList(scraped).map((a) => a.id));
+  const seen = new Set(
+    normalizeAppList(scraped.map((a) => ({ ...a, container: scope }))).map((a) => a.id),
+  );
   const absent = known.reduce((n, a) => (seen.has(a.id) ? n : n + 1), 0);
   return absent > Math.max(floor, known.length * maxMissingRatio);
 }

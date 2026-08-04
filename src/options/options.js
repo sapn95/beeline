@@ -6,6 +6,12 @@ import {
   scrollMyAppsStepInPage,
 } from '../lib/importer.js';
 import { accumulateApps } from '../lib/collector.js';
+import {
+  listContainers,
+  withContainer,
+  requestCookiesPermission,
+  isContained,
+} from '../lib/containers.js';
 
 const MYAPPS_ORIGIN = 'https://myapplications.microsoft.com/';
 const MYAPPS_PATTERN = 'https://myapplications.microsoft.com/*';
@@ -24,6 +30,7 @@ let editingId = null;
 let editDraft = null; // {name, url} in-progress edit, preserved across re-renders
 let appFilter = '';
 let pendingAppsRefresh = false; // a storage change arrived while editing — apply it on exit
+let containerNames = new Map(); // cookieStoreId -> name, for the row chips
 let settingsLoaded = false; // until the form holds the SAVED settings, never write it back
 
 async function init() {
@@ -33,6 +40,7 @@ async function init() {
   wireControls();
   populateRegions();
   populateSyncIntervals();
+  populateContainers();
   showShortcut();
 
   // Load + heal: re-normalise stored apps once so legacy names saved before the
@@ -299,6 +307,15 @@ function renderRow(app) {
   del.addEventListener('click', () => onDelete(app.id));
 
   li.append(grow);
+  // Which container, if any. Two rows can otherwise be identical down to the
+  // URL and differ only in which identity they sign in as.
+  if (app.container) {
+    const chip = document.createElement('span');
+    chip.className = 'badge';
+    chip.textContent = containerNames.get(app.container) || app.container;
+    chip.title = 'Opens in this Firefox container';
+    li.append(chip);
+  }
   if (app.source === 'myapps') {
     const badge = document.createElement('span');
     badge.className = 'badge';
@@ -558,14 +575,23 @@ function waitForTabComplete(tabId, timeoutMs = 25000) {
 // window stays in the background, so you are never pulled off this settings page.
 // A fresh window also means a clean URL (no leftover ?search= filter). The
 // window is always closed when we're done.
-async function withMyAppsWindow(fn) {
-  const win = await chrome.windows.create({
-    url: MYAPPS_ORIGIN,
-    type: 'popup',
-    focused: false,
-    width: 920,
-    height: 820,
-  });
+async function withMyAppsWindow(fn, container = '') {
+  // My Apps inside a container is signed in as THAT identity and lists that
+  // tenant's tiles. Reading the work container therefore means opening the
+  // helper window in it — the same page in the default context would just
+  // re-read whatever account happens to be signed in there.
+  const win = await chrome.windows.create(
+    await withContainer(
+      {
+        url: MYAPPS_ORIGIN,
+        type: 'popup',
+        focused: false,
+        width: 920,
+        height: 820,
+      },
+      container,
+    ),
+  );
   const tabId = win.tabs?.[0]?.id ?? null;
   try {
     if (tabId == null) throw new Error('could not open a My Apps window');
@@ -620,6 +646,10 @@ async function collectAllApps(tabId, onProgress) {
 async function onImportMyApps() {
   const btn = document.getElementById('import-myapps');
   if (btn.disabled) return; // already importing
+  // Which container to read. '' is the ordinary browsing context, which is all
+  // Chrome and a containers-off Firefox ever have.
+  const picker = document.getElementById('import-container');
+  const container = isContained(picker?.value) ? picker.value : '';
   // Disable BEFORE the permission prompt: the page stays interactive while that
   // bubble is open, so a second click would start a second import — and the
   // first one to finish would release the grid lock under the other.
@@ -632,6 +662,16 @@ async function onImportMyApps() {
   if (!granted) {
     btn.disabled = false;
     setStatus('Permission denied — cannot read My Apps.', 'error');
+    return;
+  }
+  // `cookies` is what makes a cookieStoreId mean anything. Firefox grants it
+  // without a prompt, but asking must still happen inside this click. Refusing
+  // to continue is deliberate: silently reading the DEFAULT container instead
+  // would then reconcile the chosen container's apps against the wrong tenant's
+  // tiles and delete every one of them.
+  if (container && !(await requestCookiesPermission())) {
+    btn.disabled = false;
+    setStatus('Container access denied — nothing was read, so nothing changed.', 'error');
     return;
   }
 
@@ -657,7 +697,7 @@ async function onImportMyApps() {
       apps: best,
       complete,
       reachedBottom,
-    } = await withMyAppsWindow((tabId) => collectAllApps(tabId, showImportProgress)));
+    } = await withMyAppsWindow((tabId) => collectAllApps(tabId, showImportProgress), container));
   } catch (e) {
     renderList(); // drop the progress placeholder — the list must stay visible
     setStatus(
@@ -683,7 +723,11 @@ async function onImportMyApps() {
   // Tag every scraped tile as 'myapps' BEFORE storing — otherwise a partial
   // (merge-only) import saves them untagged, so they read as manual apps that a
   // later complete reconcile can never prune (and they'd miss the My Apps badge).
-  const scraped = best.map((a) => ({ ...a, source: 'myapps' }));
+  const scraped = best.map((a) => ({
+    ...a,
+    source: 'myapps',
+    ...(container ? { container } : {}),
+  }));
 
   // Only reconcile (which removes apps no longer in My Apps) when we scrolled all
   // the way through AND owned the grid while doing it; any other read only adds,
@@ -693,7 +737,7 @@ async function onImportMyApps() {
   const before = apps.length;
   try {
     apps = await mutateApps((current) =>
-      canPrune ? reconcileApps(current, scraped) : mergeApps(current, scraped),
+      canPrune ? reconcileApps(current, scraped, { container }) : mergeApps(current, scraped),
     );
   } catch (err) {
     renderList(); // ditto: never leave the user staring at "importing…"
@@ -838,6 +882,31 @@ function populateRegions() {
     }
     sel.append(og);
   }
+}
+
+/**
+ * Fill the "read which container" picker, and show it only if this browser has
+ * containers at all. Chrome never does; a Firefox with privacy.userContext
+ * switched off reports none either, and a picker with one entry would be a
+ * control that cannot do anything.
+ */
+async function populateContainers() {
+  const sel = document.getElementById('import-container');
+  const row = document.getElementById('import-container-row');
+  const found = await listContainers();
+  containerNames = new Map(found.map((c) => [c.cookieStoreId, c.name]));
+  if (found.length === 0) return; // row stays hidden
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = 'No container';
+  sel.append(none);
+  for (const c of found) {
+    const o = document.createElement('option');
+    o.value = c.cookieStoreId;
+    o.textContent = c.name;
+    sel.append(o);
+  }
+  row.hidden = false;
 }
 
 function populateSyncIntervals() {
