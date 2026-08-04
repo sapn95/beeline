@@ -1,4 +1,11 @@
-import { getApps, mutateApps, getSettings, saveSettings, SYNC_INTERVALS } from '../lib/storage.js';
+import {
+  getApps,
+  mutateApps,
+  getSettings,
+  saveSettings,
+  SYNC_INTERVALS,
+  CONTAINER_STYLES,
+} from '../lib/storage.js';
 import { normalizeApp, normalizeAppList, mergeApps, reconcileApps } from '../lib/apps.js';
 import {
   scrapeAppsFromDocument,
