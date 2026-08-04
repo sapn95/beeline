@@ -211,11 +211,37 @@ footer button {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
-/* An app pinned to a Firefox container carries that container's colour as a
- * left edge. Two rows for the same tile in different containers are otherwise
- * identical down to the URL, and a colour is read at a glance where a name has
- * to be read word by word. The name is in the row's tooltip. */
+/* An app pinned to a Firefox container is marked in that container's own
+ * Firefox colour. Two rows for the same tile in different containers are
+ * otherwise identical down to the URL, and a colour is read at a glance where a
+ * name has to be read word by word — the name is in the row's tooltip.
+ *
+ * Three strengths, chosen in the settings. Each keeps the text in exactly the
+ * same place as on an unmarked row, so a marked row never jogs sideways against
+ * its neighbours: the padding always drops by whatever the border adds. */
 .item.contained {
+  --container-tint: color-mix(in srgb, var(--container, transparent) 22%, transparent);
+}
+
+/* Default: the whole row carries the colour. */
+#results[data-container='fill'] .item.contained {
+  border: 2px solid var(--container, currentColor);
+  padding: 6px 8px;
+  background: var(--container-tint);
+}
+
+#results[data-container='outline'] .item.contained {
+  border: 2px solid var(--container, currentColor);
+  padding: 6px 8px;
+}
+
+#results[data-container='edge'] .item.contained {
   border-left: 3px solid var(--container, currentColor);
-  padding-left: 7px; /* 10px - 3px, so the text does not shift against its neighbours */
+  padding-left: 7px;
+}
+
+/* Whichever strength is on, the selected row keeps its own highlight: which row
+ * you are about to open matters more than which container it belongs to. */
+#results .item.contained.selected {
+  background: var(--accent-bg);
 }

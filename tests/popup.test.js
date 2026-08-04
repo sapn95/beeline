@@ -682,8 +682,8 @@ describe('Firefox containers', () => {
     },
   ];
 
-  function mountFirefox({ granted = true } = {}) {
-    globalThis.chrome = makeChrome({ local: { apps: CONTAINED }, sync: { settings: {} } });
+  function mountFirefox({ granted = true, settings = {} } = {}) {
+    globalThis.chrome = makeChrome({ local: { apps: CONTAINED }, sync: { settings } });
     globalThis.browser = {
       contextualIdentities: {
         query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
@@ -755,5 +755,52 @@ describe('Firefox containers', () => {
     expect(globalThis.chrome.tabs.create).toHaveBeenCalledWith({
       url: 'https://outlook.example.com/',
     });
+  });
+});
+
+describe('how strongly a container is marked', () => {
+  const WORK = 'firefox-container-2';
+  const CONTAINED = [
+    {
+      id: 'c2',
+      name: 'Outlook',
+      url: 'https://outlook.example.com/',
+      source: 'myapps',
+      container: WORK,
+    },
+  ];
+
+  async function mountWith(containerStyle) {
+    globalThis.chrome = makeChrome({
+      local: { apps: CONTAINED },
+      sync: { settings: containerStyle ? { containerStyle } : {} },
+    });
+    globalThis.browser = {
+      contextualIdentities: {
+        query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+      },
+      permissions: { contains: vi.fn(async () => true) },
+    };
+    loadPage('popup');
+    vi.resetModules();
+    await import('../src/popup/popup.js');
+    await flush();
+  }
+
+  afterEach(() => {
+    delete globalThis.browser;
+  });
+
+  it('fills the whole row by default', async () => {
+    // With two rows for the same tile the colour IS what you read; a thin edge
+    // asks you to go looking for it.
+    await mountWith();
+    expect(document.getElementById('results').dataset.container).toBe('fill');
+  });
+
+  it.each(['outline', 'edge'])('honours the %s setting', async (style) => {
+    await mountWith(style);
+    expect(document.getElementById('results').dataset.container).toBe(style);
+    expect(rows()[0].classList.contains('contained')).toBe(true); // still marked
   });
 });

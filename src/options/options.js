@@ -88,6 +88,7 @@ function wireControls() {
   document.getElementById('theme').addEventListener('change', onSettingChange);
   document.getElementById('sync-interval').addEventListener('change', onSettingChange);
   document.getElementById('sync-on-visit').addEventListener('change', onSettingChange);
+  document.getElementById('container-style').addEventListener('change', onSettingChange);
   document.getElementById('change-shortcut').addEventListener('click', onChangeShortcut);
   statusEl.addEventListener('click', () => setStatus(''));
   // Esc dismisses it as well. <output> is a live region rather than a control,
@@ -1005,6 +1006,17 @@ async function populateContainers() {
     filter.append(o);
   }
   document.getElementById('filter-container-wrap').hidden = false;
+
+  // Only worth offering once there is a container to mark.
+  const style = document.getElementById('container-style');
+  for (const { value, label } of CONTAINER_STYLES) {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = label;
+    style.append(o);
+  }
+  style.value = (await getSettings().catch(() => ({}))).containerStyle ?? 'fill';
+  document.getElementById('container-style-row').hidden = false;
 }
 
 function populateSyncIntervals() {
@@ -1074,6 +1086,7 @@ async function loadSettings() {
   document.getElementById('theme').value = settings.theme;
   document.getElementById('sync-interval').value = String(settings.syncIntervalMin);
   document.getElementById('sync-on-visit').checked = Boolean(settings.syncOnVisit);
+  document.getElementById('container-style').value = settings.containerStyle;
   applyTheme(settings.theme);
   // Last, because it needs a second async round-trip: show what is actually in
   // effect. The permission can be revoked in the browser's own extension
@@ -1105,6 +1118,7 @@ async function onSettingChange() {
     // new interval takes effect now rather than at the next browser restart.
     syncIntervalMin: Number(document.getElementById('sync-interval').value) || 0,
     syncOnVisit: document.getElementById('sync-on-visit').checked,
+    containerStyle: document.getElementById('container-style').value,
   });
   applyTheme(theme); // reflect the new theme on this page immediately
   setStatus('Settings saved.', 'ok');

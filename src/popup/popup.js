@@ -22,6 +22,7 @@ let settings = {
   fallbackSearch: 'myapps',
   awsRegion: '',
   includeBookmarks: false,
+  containerStyle: 'fill',
 };
 let containers = new Map(); // cookieStoreId -> {name, color} (Firefox only)
 let current = [];
@@ -72,6 +73,8 @@ async function init() {
   } catch {
     /* localStorage unavailable */
   }
+  // Drives which of the three container markings the rows get — see popup.css.
+  resultsEl.dataset.container = settings.containerStyle || 'fill';
   emptyEl.hidden = apps.length > 0;
   render();
   await loadBookmarks();
