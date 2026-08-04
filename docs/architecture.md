@@ -53,7 +53,7 @@ flowchart TB
   bg -->|"chrome.scripting · merge-only"| importer
   importer -->|"reads app tiles"| myapps
 
-  storage <-->|"local: apps + launch stats<br/>sync: settings"| store
+  storage <-->|"local: apps + launch stats + container prefs<br/>sync: settings"| store
 
   classDef pure fill:#eef6ff,stroke:#5b8def,color:#15325b;
   classDef extern fill:#fff7e6,stroke:#e0a93b,color:#5b4413;
@@ -180,12 +180,18 @@ sequenceDiagram
 
 ## Storage layout
 
-| Key        | Area    | Contents                                             | Why                                      |
-| ---------- | ------- | ---------------------------------------------------- | ---------------------------------------- |
-| `apps`     | `local` | curated app list                                     | an import pulls 100+ apps (see the note) |
-| `stats`    | `local` | per-app `{count, lastLaunched}`                      | high-write, device-specific              |
-| `settings` | `sync`  | tab behaviour, fallback search, AWS region, theme, … | small, user-level                        |
+| Key        | Area                                | Contents                                             | Why                                      |
+| ---------- | ----------------------------------- | ---------------------------------------------------- | ---------------------------------------- |
+| `apps`     | `local`                             | curated app list                                     | an import pulls 100+ apps (see the note) |
+| `stats`    | `local`                             | per-app `{count, lastLaunched}`                      | high-write, device-specific              |
+| `settings` | `sync`                              | tab behaviour, fallback search, AWS region, theme, … | small, user-level                        |
+| `local`    | which containers the launcher hides | names a container, so machine-local                  |
 
+> NOTE: the container pre-filter lives in `local`, not `sync`, even though it is
+> a setting: a `cookieStoreId` such as `firefox-container-3` is handed out per
+> profile, so the same string names a different container on another machine.
+> Syncing it would hide whichever container happened to be third over there.
+>
 > NOTE: `apps` lives in `local` on purpose. `chrome.storage.sync` has an ~8 KB
 > **per-item** quota, and a My Apps import of 100+ apps blows straight past it —
 > `set()` then fails and the import silently loses everything. `local` has a

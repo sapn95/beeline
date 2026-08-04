@@ -10,6 +10,12 @@
 const APPS_KEY = 'apps';
 const STATS_KEY = 'stats';
 export const SETTINGS_KEY = 'settings';
+// Settings that name a CONTAINER live here, in local storage, not in the synced
+// blob. A cookieStoreId like `firefox-container-3` is handed out per profile:
+// the same string is a different container on another machine, so syncing the
+// pre-filter would hide whichever container happened to be third over there.
+const LOCAL_SETTINGS_KEY = 'localSettings';
+const LOCAL_SETTING_KEYS = ['hiddenContainers'];
 
 export const DEFAULT_SETTINGS = {
   openInNewTab: true,
@@ -138,8 +144,10 @@ export async function recordLaunch(id, now) {
  */
 export async function getSettings() {
   const area = syncArea();
+  const local = localArea();
   const stored = area ? (await area.get(SETTINGS_KEY))?.[SETTINGS_KEY] : null;
-  const merged = { ...DEFAULT_SETTINGS, ...stored };
+  const here = local ? (await local.get(LOCAL_SETTINGS_KEY))?.[LOCAL_SETTINGS_KEY] : null;
+  const merged = { ...DEFAULT_SETTINGS, ...stored, ...here };
   merged.hiddenContainers = Array.isArray(merged.hiddenContainers)
     ? merged.hiddenContainers.filter((v) => typeof v === 'string')
     : [];
@@ -147,8 +155,20 @@ export async function getSettings() {
 }
 
 export async function saveSettings(settings) {
-  const area = syncArea();
   const merged = { ...DEFAULT_SETTINGS, ...settings };
-  if (area) await area.set({ [SETTINGS_KEY]: merged });
+  // Split on the way out: everything that travels goes to sync, the
+  // container-naming ones stay on this machine. Written as two objects rather
+  // than one so a machine that has never seen containers cannot overwrite
+  // another machine's pre-filter with an empty list.
+  const synced = { ...merged };
+  const here = {};
+  for (const key of LOCAL_SETTING_KEYS) {
+    here[key] = merged[key];
+    delete synced[key];
+  }
+  const area = syncArea();
+  const local = localArea();
+  if (area) await area.set({ [SETTINGS_KEY]: synced });
+  if (local) await local.set({ [LOCAL_SETTINGS_KEY]: here });
   return merged;
 }

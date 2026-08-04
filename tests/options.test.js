@@ -723,11 +723,17 @@ describe('the launcher pre-filter setting', () => {
     box.checked = false;
     box.dispatchEvent(new Event('change'));
     await flush();
-    expect(globalThis.chrome.storage.sync.store.settings.hiddenContainers).toEqual([WORK]);
+    // Kept out of SYNC on purpose: a cookieStoreId is handed out per profile,
+    // so the same string names a different container on another machine.
+    expect(globalThis.chrome.storage.local.store.localSettings.hiddenContainers).toEqual([WORK]);
+    expect(globalThis.chrome.storage.sync.store.settings.hiddenContainers).toBeUndefined();
   });
 
   it('shows what was already unticked', async () => {
-    await mount({ ...withContainers, settings: { hiddenContainers: [''] } });
+    await mount({
+      ...withContainers,
+      chromeOptions: { local: { apps: [], localSettings: { hiddenContainers: [''] } } },
+    });
     await flush();
     const none = document.querySelector('#popup-containers input[data-scope=""]');
     expect(none.checked).toBe(false);

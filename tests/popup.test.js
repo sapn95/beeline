@@ -894,8 +894,9 @@ describe('the launcher container pre-filter', () => {
 
   async function mountHiding(hiddenContainers) {
     globalThis.chrome = makeChrome({
-      local: { apps: APPS },
-      sync: { settings: hiddenContainers ? { hiddenContainers } : {} },
+      // hiddenContainers lives in LOCAL storage: a cookieStoreId is per profile.
+      local: { apps: APPS, ...(hiddenContainers ? { localSettings: { hiddenContainers } } : {}) },
+      sync: { settings: {} },
     });
     globalThis.browser = {
       contextualIdentities: {
