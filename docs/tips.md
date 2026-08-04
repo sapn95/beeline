@@ -79,6 +79,46 @@ not travel between them.
 - Or just import from My Apps again, per container. Slower, but the apps come
   back tagged `myapps`, which is what lets the automatic sync maintain them.
 
+## Links opened from other apps land in the wrong container
+
+**What Firefox already does.** When another application hands Firefox a URL, it
+guesses a container for you: it looks for an already-open tab on the same host
+and reuses that tab's container. From `URILoadingHelper.sys.mjs`:
+
+> _"Given a URI, guess which container to use to open it. This is used for
+> external openers as a quality of life improvement (e.g. to open a document
+> into the container where you are logged in to the service that hosts it)."_
+
+This is on by default. Often it is what you wanted; when it is not, it is
+invisible. Turn it off in `about:config`:
+
+```
+browser.link.force_default_user_context_id_for_external_opens = true
+```
+
+**Why Beeline does not offer to ask you instead.** Because no extension can
+reliably tell that a link came from another application. Firefox computes the
+flag internally — `isExternal` in `BrowserDOMWindow.sys.mjs` — and never exposes
+it to extensions. What an extension does see is `transitionType: "link"`, which
+is byte-identical to an ordinary click on a page. The only thing left is a
+guess ("no opener tab, no origin URL"), and that guess also fires for the
+address bar, bookmarks, session restore and any other add-on opening a tab.
+
+It is not an effort question. Mozilla's own bug for this
+([1774127](https://bugzilla.mozilla.org/show_bug.cgi?id=1774127)) has been open
+since 2022, and the equivalent prompt in Mozilla's own Multi-Account Containers
+has been [broken for links from Thunderbird and Slack](https://github.com/mozilla/multi-account-containers/issues/2689)
+since 2024.
+
+Doing it anyway would cost the extension its **"Access your data for all
+websites"** permission — Beeline's only host access today is one Microsoft page,
+and [PRIVACY.md](../PRIVACY.md) says so. That is a poor trade for a guess.
+
+Two add-ons do attempt it: **ContainerGate** and **Ask for Container**. Both
+hold `<all_urls>` and blocking `webRequest`, both are one-author projects with
+single-digit user counts, and neither offers "copy the URL instead". Read their
+source before trusting them with every page you visit.
+
 ## Chrome: opening a link as a different profile
 
 Chrome has no equivalent of Firefox containers, and no extension can reach
