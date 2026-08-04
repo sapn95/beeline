@@ -746,6 +746,97 @@ describe('the launcher pre-filter setting', () => {
   });
 });
 
+describe('rebuilding after a container changed', () => {
+  const WORK = 'firefox-container-2';
+  const containersOf = (list) => ({
+    apps: [],
+    mutate: (c) => {
+      c.contextualIdentities = { query: vi.fn(async () => list) };
+    },
+  });
+
+  const fire = async () => {
+    // Firefox emits these when a container is renamed, created or deleted.
+    await globalThis.chrome.contextualIdentities.onUpdated.emit({});
+    await flush();
+    await flush();
+  };
+
+  function withEvents(list) {
+    const opts = containersOf(list);
+    const mutate = opts.mutate;
+    opts.mutate = (c) => {
+      mutate(c);
+      c.contextualIdentities.onUpdated = makeEventStub();
+    };
+    return opts;
+  }
+
+  function makeEventStub() {
+    const fns = [];
+    return {
+      addListener: (fn) => fns.push(fn),
+      emit: async (...args) => {
+        for (const fn of fns) await fn(...args);
+      },
+    };
+  }
+
+  it('keeps the settings page writable when the first load had failed', async () => {
+    // The rebuild runs loadSettings() itself. Handing the flag back as it was
+    // BEFORE the rebuild left the page permanently unwritable: every later
+    // change refused with "Settings are not loaded yet".
+    let first = true;
+    await mount({
+      ...withEvents([{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+      mutate: (c) => {
+        c.contextualIdentities = {
+          query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+          onUpdated: makeEventStub(),
+        };
+        const real = c.storage.sync.get;
+        c.storage.sync.get = vi.fn(async (k) => {
+          if (first) {
+            first = false;
+            throw new Error('transient');
+          }
+          return real(k);
+        });
+      },
+    });
+    await flush();
+    await fire();
+    $('theme').value = 'dark';
+    $('theme').dispatchEvent(new Event('change'));
+    await flush();
+    expect(status()).toBe('Settings saved.');
+  });
+
+  it('leaves the list on "all containers" when the last one is deleted', async () => {
+    // '' would mean "no container", silently hiding every contained app — with
+    // the filter control now hidden, so there is nothing left to undo it with.
+    const url = 'https://plain.example.com/';
+    const opts = withEvents([{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]);
+    opts.apps = [
+      { id: appId(url), name: 'Plain', url, source: 'myapps' },
+      {
+        id: appId('https://work.example.com/', WORK),
+        name: 'Worky',
+        url: 'https://work.example.com/',
+        source: 'myapps',
+        container: WORK,
+      },
+    ];
+    await mount(opts);
+    await flush();
+    globalThis.chrome.contextualIdentities.query = vi.fn(async () => []);
+    await fire();
+    expect($('filter-container-wrap').hidden).toBe(true);
+    // Both still listed. '' would have meant "no container" and hidden Worky.
+    expect(rowNames().sort()).toEqual(['Plain', 'Worky']);
+  });
+});
+
 describe('a JSON file is not a browser', () => {
   const WORK = 'firefox-container-2';
 

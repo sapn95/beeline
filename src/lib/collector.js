@@ -62,18 +62,32 @@ export async function accumulateApps({
   // `signInGraceMs`, and the round is not counted either.
   const graceUntil = signInGraceMs > 0 ? Date.now() + signInGraceMs : 0;
   let sawTiles = false;
+  // The READING budget, taken as a length rather than a moment. Deferring an
+  // absolute deadline is not enough: sign in after three minutes and the two
+  // minutes are already gone, so the first tiles arrive to a budget of zero and
+  // the import stops at whatever one round happened to see. The clock is
+  // restarted when the grid finally appears — which is when reading begins.
+  const budget = deadline === null ? null : Math.max(0, deadline - Date.now());
+  let readUntil = deadline;
 
   for (; rounds < maxRounds && stable < stableLimit; rounds++) {
     const waitingToSignIn = !sawTiles && Date.now() < graceUntil;
-    if (deadline !== null && !waitingToSignIn && Date.now() > deadline) break;
+    if (readUntil !== null && !waitingToSignIn && Date.now() > readUntil) break;
 
     const found = await scrapeRound(seen.size);
     if (found === null) {
       await sleep(1200); // not ready yet — wait and retry without counting it
-      rounds--; // …and without spending a round, or the grace runs out in 150
+      // …and without spending a round, but ONLY while the grace is still open.
+      // Unconditionally, this removes the last bound on the loop: with no
+      // deadline (the documented default) a page that never answers spins for
+      // ever, because maxRounds can never be reached.
+      if (waitingToSignIn) rounds--;
       continue;
     }
-    if (found.length > 0) sawTiles = true;
+    if (!sawTiles && found.length > 0) {
+      sawTiles = true;
+      if (budget !== null) readUntil = Date.now() + budget; // reading starts here
+    }
 
     const grew = addNew(seen, found);
     const remaining = await scrollRound();

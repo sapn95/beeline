@@ -522,7 +522,9 @@ describe('safety rules', () => {
 
   it('resumes when a crashed import left a stale flag behind', async () => {
     const c = await boot({
-      local: { apps: EXISTING, beelineImporting: Date.now() - 10 * 60 * 1000 },
+      // Older than IMPORT_FLAG_TTL_MS, which is 15 minutes — long enough to
+      // outlast an import that waits ten of them for a sign-in.
+      local: { apps: EXISTING, beelineImporting: Date.now() - 20 * 60 * 1000 },
     });
     addTile('App 1', '1');
     await visit(c);

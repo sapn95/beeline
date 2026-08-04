@@ -41,7 +41,11 @@ const READ_BUDGET_MS = 90000; // walking a few hundred tiles takes a while
 // timestamp) for the duration; we treat it as live for a bounded window so a
 // crashed import can't pause sync forever.
 const IMPORT_FLAG = 'beelineImporting';
-const IMPORT_FLAG_TTL_MS = 5 * 60 * 1000;
+// Longer than the longest possible import. That is now ten and a half minutes,
+// because an import will wait ten of them for a sign-in — and a claim that
+// expires mid-import lets the sync start walking the very grid the import is
+// scrolling, which is the interleaving this flag exists to prevent.
+const IMPORT_FLAG_TTL_MS = 15 * 60 * 1000;
 
 const lastSync = new Map(); // tabId -> timestamp, debounces the SPA's repeated 'complete' events
 

@@ -281,7 +281,9 @@ describe('waiting for a sign-in is not failing', () => {
         // Not ready for the first ten rounds — i.e. the login screen.
         scrapeRound: async () => {
           round += 1;
-          return round <= 10 ? null : [{ url: `https://app${round}.example.com/` }];
+          if (round <= 10) return null;
+          // A settled grid of ten tiles once the sign-in is through.
+          return Array.from({ length: 10 }, (_, i) => ({ url: `https://app${i}.example.com/` }));
         },
         scrollRound: async () => 0,
         sleep: async (ms) => {
@@ -290,7 +292,11 @@ describe('waiting for a sign-in is not failing', () => {
         deadline: 5000, // long gone by the time sign-in finishes
         signInGraceMs: 600000,
       });
-      expect(out.apps.length).toBeGreaterThan(0);
+      // And a FULL reading budget afterwards, not the single round that is all
+      // a merely-deferred deadline would have left: the clock restarts when the
+      // grid appears, which is when reading actually begins.
+      expect(out.apps).toHaveLength(10);
+      expect(out.complete).toBe(true);
     } finally {
       spy.mockRestore();
     }
@@ -328,7 +334,9 @@ describe('waiting for a sign-in is not failing', () => {
         },
         deadline: 1000,
       });
-      expect(out.rounds).toBe(0); // gave up on the first check
+      // One retry is spent, then the round counter is allowed to advance —
+      // that is what stops a never-answering page spinning for ever.
+      expect(out.rounds).toBe(1);
     } finally {
       spy.mockRestore();
     }

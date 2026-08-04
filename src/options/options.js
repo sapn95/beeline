@@ -1225,13 +1225,19 @@ async function refreshContainers() {
     await populateContainers();
     // The pickers were just rebuilt, so put the saved values back on them.
     await loadSettings().catch(() => {});
-    restoreIfStillThere('filter-container', keep.filter, (v) => {
+    // 'all' as the fallback, not the first option: with the last container
+    // deleted the select is empty, and '' would silently switch the list from
+    // "all containers" to "no container" — with no visible control to undo it.
+    restoreIfStillThere('filter-container', keep.filter, 'all', (v) => {
       containerFilter = v;
     });
     restoreIfStillThere('import-container', keep.import);
     restoreIfStillThere('add-container', keep.add);
   } finally {
-    settingsLoaded = wasLoaded;
+    // NOT a blind restore: the rebuild runs loadSettings() itself, and if that
+    // succeeded the page IS loaded — overwriting it with a pre-rebuild `false`
+    // left the settings permanently unwritable, with every change refused.
+    settingsLoaded = settingsLoaded || wasLoaded;
     refreshing = false;
   }
   renderList(); // the chips carry container NAMES
@@ -1242,11 +1248,11 @@ async function refreshContainers() {
 }
 
 /** Put a picker back on its old value, unless that container is now gone. */
-function restoreIfStillThere(id, value, also) {
+function restoreIfStillThere(id, value, fallback = '', also) {
   const sel = document.getElementById(id);
   const has = [...sel.options].some((o) => o.value === value);
-  sel.value = has ? value : sel.options[0]?.value || '';
-  also?.(sel.value);
+  sel.value = has ? value : (sel.options[0]?.value ?? fallback);
+  also?.(has ? value : fallback);
 }
 
 async function populateContainers() {
