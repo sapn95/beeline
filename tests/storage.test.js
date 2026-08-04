@@ -125,3 +125,37 @@ describe('without chrome available', () => {
     await expect(saveApps([])).resolves.toBeUndefined();
   });
 });
+
+describe('container settings live on this machine only', () => {
+  const WORK = 'firefox-container-2';
+
+  it('carries a pre-split value over, once', async () => {
+    // Someone who set the filter before the split has it in the synced blob and
+    // nothing locally. Dropping it outright would silently reset their choice.
+    await chrome.storage.sync.set({ settings: { hiddenContainers: [WORK] } });
+    await expect(getSettings()).resolves.toMatchObject({ hiddenContainers: [WORK] });
+  });
+
+  it('lets this machine overrule whatever is in sync', async () => {
+    // A cookieStoreId is per profile, so a synced value is another machine's
+    // container. Once this one has an answer of its own, that answer wins.
+    await chrome.storage.sync.set({ settings: { hiddenContainers: [WORK] } });
+    await chrome.storage.local.set({ localSettings: { hiddenContainers: [] } });
+    await expect(getSettings()).resolves.toMatchObject({ hiddenContainers: [] });
+  });
+
+  it('never writes a container id into sync', async () => {
+    await saveSettings({ theme: 'dark', hiddenContainers: [WORK] });
+    const synced = (await chrome.storage.sync.get('settings')).settings;
+    const here = (await chrome.storage.local.get('localSettings')).localSettings;
+    expect(synced.hiddenContainers).toBeUndefined();
+    expect(synced.theme).toBe('dark');
+    expect(here.hiddenContainers).toEqual([WORK]);
+  });
+
+  it('still returns everything it was given', async () => {
+    await expect(saveSettings({ hiddenContainers: [WORK] })).resolves.toMatchObject({
+      hiddenContainers: [WORK],
+    });
+  });
+});

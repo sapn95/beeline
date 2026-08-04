@@ -145,9 +145,19 @@ export async function recordLaunch(id, now) {
 export async function getSettings() {
   const area = syncArea();
   const local = localArea();
-  const stored = area ? (await area.get(SETTINGS_KEY))?.[SETTINGS_KEY] : null;
+  const synced = { ...(area ? (await area.get(SETTINGS_KEY))?.[SETTINGS_KEY] : null) };
+  // A container-naming key found in the SYNCED blob is either this machine's own
+  // value from before the split, or another machine's — and there is no way to
+  // tell them apart. So it is taken out of the synced object entirely and used
+  // only as a fallback: whatever THIS machine has stored locally always wins,
+  // and once it has saved once, a foreign value can never apply again.
+  const legacy = {};
+  for (const key of LOCAL_SETTING_KEYS) {
+    if (key in synced) legacy[key] = synced[key];
+    delete synced[key];
+  }
   const here = local ? (await local.get(LOCAL_SETTINGS_KEY))?.[LOCAL_SETTINGS_KEY] : null;
-  const merged = { ...DEFAULT_SETTINGS, ...stored, ...here };
+  const merged = { ...DEFAULT_SETTINGS, ...synced, ...(here ?? legacy) };
   merged.hiddenContainers = Array.isArray(merged.hiddenContainers)
     ? merged.hiddenContainers.filter((v) => typeof v === 'string')
     : [];

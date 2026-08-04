@@ -57,8 +57,10 @@ actually has bound.)
   per container, marked in that container's own Firefox colour and opened as the
   right identity. The periodic sync covers every container you keep apps in, one
   at a time, and a read of one container can never remove another's apps. Filter
-  the list by container, and clear only what the filter is showing. Chrome has no
-  such feature, and none of this appears there.
+  the list by container, clear only what the filter is showing, and choose which
+  containers the launcher itself lists — that last one only narrows the view, it
+  never removes an app or stops it syncing. Chrome has no such feature, and none
+  of this appears there.
 - 🔖 **Bookmarks too — if you want** — switch on _"Also search this browser's
   bookmarks"_ in the settings and your bookmarks join the search results (each
   showing the folder it lives in, and ranked just below an app of the same

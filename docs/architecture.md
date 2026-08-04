@@ -106,6 +106,15 @@ sequenceDiagram
   path — so it is fully unit-testable and carries the coverage gate (see
   `vitest.config.js`). UI glue (`popup`, `options`, `background`) is thin and
   verified by load-unpacked smoke testing.
+- **The launcher's container pre-filter narrows the VIEW, never the data.**
+  `hiddenContainers` (in `local`, see the storage note below) is subtracted in
+  `visibleApps()` in the popup and nowhere else: the apps stay stored, stay
+  synced, keep their strikes, and come back the instant a box is ticked. The
+  fallback "search My Apps" rows follow the same filter — offering to search an
+  account the user has chosen not to see would be an odd thing to do — and the
+  empty panel distinguishes "no apps" from "all of them filtered away", because
+  offering "add or import" to someone whose apps exist is the one answer that
+  cannot help.
 - **A container is part of an app's identity, not a launch option.** (Firefox
   only; Chrome has no counterpart and every entry point in `lib/containers.js`
   answers "there are no containers" rather than throwing.) `appId` folds the
