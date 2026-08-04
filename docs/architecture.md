@@ -57,7 +57,7 @@ flowchart TB
 
   classDef pure fill:#eef6ff,stroke:#5b8def,color:#15325b;
   classDef extern fill:#fff7e6,stroke:#e0a93b,color:#5b4413;
-  class ranking,fuzzy,apps,importer,collector,storage,bookmarksLib pure;
+  class ranking,fuzzy,apps,importer,collector,storage,bookmarksLib,containers pure;
   class store,marks,icons,myapps,opened extern;
 ```
 
