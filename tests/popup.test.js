@@ -668,3 +668,204 @@ describe('manage apps', () => {
     });
   });
 });
+
+describe('Firefox containers', () => {
+  const WORK = 'firefox-container-2';
+  const CONTAINED = [
+    { id: 'c1', name: 'Outlook', url: 'https://outlook.example.com/', source: 'myapps' },
+    {
+      id: 'c2',
+      name: 'Outlook',
+      url: 'https://outlook.example.com/',
+      source: 'myapps',
+      container: WORK,
+    },
+  ];
+
+  function mountFirefox({ granted = true, settings = {} } = {}) {
+    globalThis.chrome = makeChrome({ local: { apps: CONTAINED }, sync: { settings } });
+    globalThis.browser = {
+      contextualIdentities: {
+        query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+      },
+      permissions: { contains: vi.fn(async () => granted) },
+    };
+    loadPage('popup');
+    vi.resetModules();
+    return import('../src/popup/popup.js');
+  }
+
+  afterEach(() => {
+    delete globalThis.browser;
+  });
+
+  it('marks the contained row with its container colour, not with words', async () => {
+    // Two rows, identical name and URL. A colour is read at a glance where a
+    // name has to be read word by word.
+    await mountFirefox();
+    await flush();
+    const [plain, contained] = rows();
+    expect(plain.classList.contains('contained')).toBe(false);
+    expect(contained.classList.contains('contained')).toBe(true);
+    expect(contained.style.getPropertyValue('--container')).toBe('#ff613d'); // Firefox red
+    expect(contained.title).toBe('https://outlook.example.com/\nOpens in the SBB container');
+    // Every row spells its full launch URL out on hover, contained or not.
+    expect(plain.title).toBe('https://outlook.example.com/');
+    // The subtitle stays the host — the colour carries the container.
+    expect(contained.querySelector('.host').textContent).toBe('outlook.example.com');
+  });
+
+  it('still marks a row whose colour this build does not know', async () => {
+    // "This one is pinned somewhere" is the part that matters; the hue is only
+    // the shortcut, and Firefox keeps renaming its colours.
+    globalThis.chrome = makeChrome({ local: { apps: CONTAINED }, sync: { settings: {} } });
+    globalThis.browser = {
+      contextualIdentities: {
+        query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'chartreuse' }]),
+      },
+      permissions: { contains: vi.fn(async () => true) },
+    };
+    loadPage('popup');
+    vi.resetModules();
+    await import('../src/popup/popup.js');
+    await flush();
+    expect(rows()[1].style.getPropertyValue('--container')).toBe('currentColor');
+  });
+
+  it('launches a contained app into its container', async () => {
+    await mountFirefox();
+    await flush();
+    press(document.getElementById('search'), 'ArrowDown');
+    press(document.getElementById('search'), 'Enter');
+    await flush();
+    expect(globalThis.chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'https://outlook.example.com/',
+      cookieStoreId: WORK,
+    });
+  });
+
+  it('opens it in the default container rather than not at all', async () => {
+    // Firefox rejects tabs.create outright when a cookieStoreId is passed
+    // without the `cookies` permission — the app would simply never open.
+    await mountFirefox({ granted: false });
+    await flush();
+    press(document.getElementById('search'), 'ArrowDown');
+    press(document.getElementById('search'), 'Enter');
+    await flush();
+    expect(globalThis.chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'https://outlook.example.com/',
+    });
+  });
+});
+
+describe('how strongly a container is marked', () => {
+  const WORK = 'firefox-container-2';
+  const CONTAINED = [
+    {
+      id: 'c2',
+      name: 'Outlook',
+      url: 'https://outlook.example.com/',
+      source: 'myapps',
+      container: WORK,
+    },
+  ];
+
+  async function mountWith(containerStyle) {
+    globalThis.chrome = makeChrome({
+      local: { apps: CONTAINED },
+      sync: { settings: containerStyle ? { containerStyle } : {} },
+    });
+    globalThis.browser = {
+      contextualIdentities: {
+        query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+      },
+      permissions: { contains: vi.fn(async () => true) },
+    };
+    loadPage('popup');
+    vi.resetModules();
+    await import('../src/popup/popup.js');
+    await flush();
+  }
+
+  afterEach(() => {
+    delete globalThis.browser;
+  });
+
+  it('fills the whole row by default', async () => {
+    // With two rows for the same tile the colour IS what you read; a thin edge
+    // asks you to go looking for it.
+    await mountWith();
+    expect(document.getElementById('results').dataset.container).toBe('fill');
+  });
+
+  it.each(['outline', 'edge'])('honours the %s setting', async (style) => {
+    await mountWith(style);
+    expect(document.getElementById('results').dataset.container).toBe(style);
+    expect(rows()[0].classList.contains('contained')).toBe(true); // still marked
+  });
+});
+
+describe('the My Apps fallback with containers', () => {
+  const WORK = 'firefox-container-2';
+  const MIXED = [
+    { id: 'f1', name: 'Alpha', url: 'https://alpha.example.com/', source: 'myapps' },
+    {
+      id: 'f2',
+      name: 'Beta',
+      url: 'https://beta.example.com/',
+      source: 'myapps',
+      container: WORK,
+    },
+  ];
+
+  async function mountMixed(apps) {
+    globalThis.chrome = makeChrome({ local: { apps }, sync: { settings: {} } });
+    globalThis.browser = {
+      contextualIdentities: {
+        query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+      },
+      permissions: { contains: vi.fn(async () => true) },
+    };
+    loadPage('popup');
+    vi.resetModules();
+    await import('../src/popup/popup.js');
+    await flush();
+    const search = document.getElementById('search');
+    search.value = 'nothing matches this';
+    search.dispatchEvent(new Event('input'));
+  }
+
+  afterEach(() => {
+    delete globalThis.browser;
+  });
+
+  it('offers one row per container the user keeps apps in', async () => {
+    // My Apps in the work container lists a different tenant than the same page
+    // in the default context, so a single row would send you to whichever
+    // account happened to be signed in — usually not the one you searched for.
+    await mountMixed(MIXED);
+    expect(rows().map((li) => li.querySelector('.name').textContent)).toEqual([
+      'Search My Apps for “nothing matches this”',
+      'Search My Apps for “nothing matches this” (SBB)',
+    ]);
+  });
+
+  it('opens the portal in the container that row stands for', async () => {
+    await mountMixed(MIXED);
+    press(document.getElementById('search'), 'ArrowDown');
+    press(document.getElementById('search'), 'Enter');
+    await flush();
+    expect(globalThis.chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'https://myapplications.microsoft.com/',
+      cookieStoreId: WORK,
+    });
+  });
+
+  it('stays a single row when no container is in play', async () => {
+    await mountMixed([MIXED[0]]);
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0].querySelector('.name').textContent).toBe(
+      'Search My Apps for “nothing matches this”',
+    );
+  });
+});

@@ -25,14 +25,20 @@
           Pull your apps straight from the Microsoft My Apps portal. You will be asked to grant
           access to <code>myapplications.microsoft.com</code> the first time.
         </p>
-        <!-- Firefox containers only: hidden entirely when the browser has none,
-             which is every Chromium build and a Firefox with the feature off. -->
-        <label id="import-container-row" class="select inline" hidden>
-          Read
-          <select id="import-container"></select>
-        </label>
-        <div class="row">
+        <div class="row import-row">
+          <!-- Firefox containers only: hidden entirely when the browser has
+               none, which is every Chromium build and a Firefox with the
+               feature off. It sits with the button it modifies — on its own
+               line it read as an unrelated setting. -->
+          <label id="import-container-row" class="select inline" hidden>
+            Read
+            <select id="import-container"></select>
+          </label>
           <button id="import-myapps" type="button">Import from My Apps</button>
+          <!-- The JSON pair is a different job — moving the list in and out of a
+               file, not talking to the portal — so it is pushed to its own end
+               of the row rather than sitting in the same run of buttons. -->
+          <span class="spacer"></span>
           <button id="export" type="button">Export JSON</button>
           <label class="file-btn">
             Import JSON
@@ -52,20 +58,20 @@
 
       <section>
         <h2>Settings</h2>
+
+        <h3>Launching</h3>
         <label class="check">
           <input id="open-in-new-tab" type="checkbox" /> Open apps in a new tab
         </label>
         <label class="check">
           <input id="close-after-launch" type="checkbox" /> Close the popup after launching
         </label>
-        <label class="check">
-          <input id="include-bookmarks" type="checkbox" /> Also search this browser’s bookmarks
+        <label class="select">
+          AWS region (for apps with “aws” in the name):
+          <select id="aws-region"></select>
         </label>
-        <p class="note">
-          Bookmarks show up once you type, below apps of the same relevance. They are read live
-          while the popup is open — never stored, never sent anywhere. Turning this on asks for the
-          bookmarks permission; turning it off hands the permission back.
-        </p>
+
+        <h3>Searching</h3>
         <label class="select">
           When no app matches, search:
           <select id="fallback-search">
@@ -75,20 +81,18 @@
             <option value="off">Nothing</option>
           </select>
         </label>
-        <label class="select">
-          AWS region (for apps with “aws” in the name):
-          <select id="aws-region"></select>
+        <label class="check">
+          <input id="include-bookmarks" type="checkbox" /> Also search this browser’s bookmarks
         </label>
+        <p class="note">
+          Bookmarks show up once you type, below apps of the same relevance. They are read live
+          while the popup is open — never stored, never sent anywhere. Turning this on asks for the
+          bookmarks permission; turning it off hands the permission back.
+        </p>
+
+        <h3>Keeping in sync</h3>
         <label class="select">
-          Theme:
-          <select id="theme">
-            <option value="auto">Auto (match system)</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </label>
-        <label class="select">
-          Keep in sync with My Apps:
+          Sync with My Apps:
           <select id="sync-interval"></select>
         </label>
         <label class="check">
@@ -101,6 +105,20 @@
           launcher. Removal needs the portal tab to be the one on screen, which is what the visit
           sync is for; a sync of a background tab can only add.
         </p>
+
+        <h3>Appearance</h3>
+        <label class="select" id="container-style-row" hidden>
+          Show a container as:
+          <select id="container-style"></select>
+        </label>
+        <label class="select">
+          Theme:
+          <select id="theme">
+            <option value="auto">Auto (match system)</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
       </section>
 
       <section>
@@ -108,7 +126,20 @@
           <h2>Your apps (<span id="count">0</span>)</h2>
           <button id="clear" type="button" class="danger">Remove all</button>
         </div>
-        <input id="app-filter" type="search" placeholder="Filter apps…" aria-label="Filter apps" />
+        <div class="row filter-row">
+          <input
+            id="app-filter"
+            type="search"
+            placeholder="Filter apps…"
+            aria-label="Filter apps"
+          />
+          <!-- Firefox containers only, hidden when the browser has none. The
+               text box cannot express "the ones with no container at all". -->
+          <label id="filter-container-wrap" class="select inline" hidden>
+            Container
+            <select id="filter-container"></select>
+          </label>
+        </div>
         <ul id="list" class="apps"></ul>
       </section>
 

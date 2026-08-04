@@ -85,6 +85,38 @@ export async function containerName(cookieStoreId) {
   }
 }
 
+/**
+ * Firefox's own name for a container colour, turned into something CSS can
+ * paint. Deliberately a lookup with a fallback rather than a fixed list:
+ * Firefox 153 renamed some colours and added others, so an add-on that insists
+ * on knowing every name is one release away from being wrong. A name this does
+ * not recognise simply gets no dot — the container is still named in words, and
+ * a missing dot is a far better answer than a wrong colour or a broken chip.
+ *
+ * Anything Firefox reports is accepted, old vocabulary and new: the CSS colour
+ * names below are what both generations have used, and `toolbar` is the
+ * theme-following value newer Firefox hands out.
+ */
+const CONTAINER_COLORS = {
+  blue: '#37adff',
+  turquoise: '#00c79a',
+  green: '#51cd00',
+  yellow: '#ffcb00',
+  orange: '#ff9f00',
+  red: '#ff613d',
+  pink: '#ff4bda',
+  purple: '#af51f5',
+  toolbar: 'currentColor',
+};
+
+/** A CSS colour for a container, or '' when Firefox named one we do not know. */
+export function containerColor(color) {
+  const key = String(color ?? '').toLowerCase();
+  // hasOwn, not a plain lookup: `constructor` and `__proto__` come back truthy
+  // from Object.prototype and would paint a dot with a function in it.
+  return Object.hasOwn(CONTAINER_COLORS, key) ? CONTAINER_COLORS[key] : '';
+}
+
 /** `cookies` is what makes tabs.create/windows.create honour a cookieStoreId. */
 const COOKIES_PERMISSION = { permissions: ['cookies'] };
 

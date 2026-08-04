@@ -57,19 +57,37 @@ const IDENTITY_NOISE = new Set([
  * app in two either. The stored URL keeps all of it — the fragment because
  * hash-routed apps (Azure Portal blades, Power BI pages) live entirely in it,
  * and the parameters because that is the URL the tile actually launches. */
+// A canonical form is a pure function of the URL string, so it can be memoised
+// for the life of the page. Worth it out of all proportion to its size: this
+// runs from appId, which runs from normalizeApp, which runs over the WHOLE list
+// several times per sync — and with the same tile stored once per container the
+// same handful of URLs come round again and again. Measured over 1160 apps in
+// four containers: 11.3 ms cold, 0.02 ms warm.
+const canonical = new Map();
+
 export function canonicalUrl(url) {
+  const key = String(url ?? '');
+  const hit = canonical.get(key);
+  if (hit !== undefined) return hit;
+  let out;
   try {
-    const u = new URL(url);
+    const u = new URL(key);
     u.hash = '';
-    // Snapshot the keys: deleting from the live iterator skips entries.
-    for (const key of [...u.searchParams.keys()]) {
-      if (IDENTITY_NOISE.has(key.toLowerCase())) u.searchParams.delete(key);
-    }
-    u.searchParams.sort();
-    return u.toString();
+    // Collect what survives and write the query back ONCE. Deleting key by key
+    // re-serialises the whole query string every time, which was most of the
+    // cost of this function.
+    const kept = [...u.searchParams.entries()].filter(
+      ([k]) => !IDENTITY_NOISE.has(k.toLowerCase()),
+    );
+    const params = new URLSearchParams(kept);
+    params.sort();
+    u.search = params.toString();
+    out = u.toString();
   } catch {
-    return String(url ?? '').trim();
+    out = key.trim();
   }
+  canonical.set(key, out);
+  return out;
 }
 
 /** The id an app WOULD have had before the noise parameters were stripped —
@@ -175,11 +193,22 @@ export function migrateStats(apps, stats) {
   // The RAW list, deliberately not the normalised one: normalising DEDUPES, and
   // the whole point here is that two stored records now share an id. Each of
   // them still has its own history to bring along.
+  // Which ids the list itself already claims. A CONTAINED app's legacy id is,
+  // by construction, the container-less app's CURRENT id — so migrating it would
+  // hand one app's launch history to a different app and delete the original's.
+  const claimed = new Set(
+    (Array.isArray(apps) ? apps : [])
+      .filter((a) => isValidHttpsUrl(String(a?.url ?? '').trim()))
+      .map((a) => appId(String(a.url).trim(), a?.container)),
+  );
   for (const raw of Array.isArray(apps) ? apps : []) {
     const url = String(raw?.url ?? '').trim();
     if (!isValidHttpsUrl(url)) continue;
     const old = legacyAppId(url);
-    const id = appId(url);
+    if (claimed.has(old)) continue; // that history belongs to a live app
+    // With the app's own container, or the migration target is an id nothing
+    // owns — and `delete next[old]` would then throw the history away.
+    const id = appId(url, raw?.container);
     if (old === id || !next[old]) continue;
     const from = next[old];
     const to = next[id];
@@ -270,9 +299,10 @@ export function reconcileApps(existing, scraped, { container = '' } = {}) {
     const legacy = legacyById.get(app.id);
     map.set(app.id, legacy ? { ...legacy, source: 'myapps' } : app);
   }
-  // A manual import is the user watching a complete walk of the grid: it settles
-  // the question for every app, so nothing is left carrying a strike.
-  return [...map.values()].map(unmarked);
+  // A manual import is the user watching a complete walk of the grid, so it
+  // settles the question — but only for the container it actually walked.
+  // Another container's strikes are none of its business.
+  return [...map.values()].map((a) => (inScope(a) ? unmarked(a) : a));
 }
 
 /** Drop the automatic sync's strike counter from a record. */
@@ -318,8 +348,15 @@ export function applySyncRead(existing, scraped, { strikes = 2, container = '' }
   const apps = [];
   const removed = [];
   for (const app of mergeApps(existing, incoming)) {
-    if (app.source !== 'myapps' || !inScope(app) || seen.has(app.id)) {
-      apps.push(unmarked(app)); // still there, another container's, or not ours
+    if (app.source !== 'myapps' || seen.has(app.id)) {
+      apps.push(unmarked(app)); // still there, or not ours to prune
+      continue;
+    }
+    if (!inScope(app)) {
+      // Another container's. This read never looked at it, so it neither clears
+      // nor adds a strike — clearing would mean a user who alternates between a
+      // default and a container My Apps tab could never prune anything again.
+      apps.push(app);
       continue;
     }
     const strike = (app.missing ?? 0) + 1;
@@ -359,8 +396,12 @@ export function isSuspectRead(
     (a) => a.source === 'myapps' && (a.container ?? '') === scope,
   );
   if (known.length === 0) return false; // nothing to lose yet
+  // Guarded before the map: this is the one rail whose whole job is to distrust
+  // a bad read, so it must never be the thing that throws on one.
   const seen = new Set(
-    normalizeAppList(scraped.map((a) => ({ ...a, container: scope }))).map((a) => a.id),
+    normalizeAppList(
+      (Array.isArray(scraped) ? scraped : []).map((a) => ({ ...a, container: scope })),
+    ).map((a) => a.id),
   );
   const absent = known.reduce((n, a) => (seen.has(a.id) ? n : n + 1), 0);
   return absent > Math.max(floor, known.length * maxMissingRatio);

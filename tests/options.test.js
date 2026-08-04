@@ -530,6 +530,218 @@ describe('filtering', () => {
   });
 });
 
+describe('the full URL on hover', () => {
+  it('spells out the whole launch URL, which the row itself truncates', async () => {
+    // These URLs carry the account, the tenant and the region — the tail that
+    // gets cut off is the part that tells two near-identical rows apart.
+    await mount();
+    expect(rows()[0].querySelector('.app-url').title).toBe('https://jira.example.com/');
+  });
+});
+
+describe('containers are invisible on a browser that has none', () => {
+  it('hides every container control, not just the picker', async () => {
+    // Chrome has no such feature, and a Firefox with privacy.userContext off
+    // reports none either. A dead dropdown is worse than no dropdown.
+    await mount();
+    expect($('import-container-row').hidden).toBe(true);
+    expect($('filter-container-wrap').hidden).toBe(true);
+    expect($('container-style-row').hidden).toBe(true);
+  });
+});
+
+describe('removing what the filter is showing', () => {
+  const WORK = 'firefox-container-2';
+  const url = (n) => `https://app${n}.example.com/`;
+  const SOME = [
+    { id: appId(url(1)), name: 'Plain one', url: url(1), source: 'myapps' },
+    { id: appId(url(2), WORK), name: 'Work one', url: url(2), source: 'myapps', container: WORK },
+    { id: appId(url(3), WORK), name: 'Work two', url: url(3), source: 'myapps', container: WORK },
+  ];
+
+  const mountWork = () =>
+    mount({
+      apps: SOME,
+      mutate: (c) => {
+        c.contextualIdentities = {
+          query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+        };
+      },
+    });
+
+  it('removes only the filtered apps, not the whole list', async () => {
+    // A button next to a filtered list that says "Remove all" and empties
+    // everything behind it is a trap.
+    await mountWork();
+    await flush();
+    $('filter-container').value = WORK;
+    $('filter-container').dispatchEvent(new Event('change'));
+    await click($('clear'));
+    expect(stored().map((a) => a.name)).toEqual(['Plain one']);
+    expect(status()).toBe('Removed 2 app(s).');
+  });
+
+  it('says how many of how many are going', async () => {
+    await mountWork();
+    await flush();
+    $('app-filter').value = 'work two';
+    $('app-filter').dispatchEvent(new Event('input'));
+    await click($('clear'));
+    expect(globalThis.confirm).toHaveBeenCalledWith(
+      'Remove the 1 app(s) currently shown, out of 3? This cannot be undone.',
+    );
+    expect(stored()).toHaveLength(2);
+  });
+
+  it('still empties everything when nothing is filtered', async () => {
+    await mountWork();
+    await flush();
+    await click($('clear'));
+    expect(globalThis.confirm).toHaveBeenCalledWith('Remove all 3 apps? This cannot be undone.');
+    expect(stored()).toEqual([]);
+    expect(status()).toBe('Removed all apps.');
+  });
+
+  it('does nothing when the filter matches nothing', async () => {
+    await mountWork();
+    await flush();
+    $('app-filter').value = 'nothing matches this';
+    $('app-filter').dispatchEvent(new Event('input'));
+    await click($('clear'));
+    expect(globalThis.confirm).not.toHaveBeenCalled();
+    expect(stored()).toHaveLength(3);
+  });
+});
+
+describe('a JSON file is not a browser', () => {
+  const WORK = 'firefox-container-2';
+
+  async function importFile(records, containers = []) {
+    await mount({
+      apps: [],
+      mutate: (c) => {
+        c.contextualIdentities = { query: vi.fn(async () => containers) };
+      },
+    });
+    await flush();
+    const input = $('import-file');
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [{ text: async () => JSON.stringify(records) }],
+    });
+    input.dispatchEvent(new Event('change'));
+    await flush();
+    await flush();
+  }
+
+  const record = (extra) => ({
+    name: 'Restored',
+    url: 'https://restored.example.com/',
+    ...extra,
+  });
+
+  it('drops a container this browser does not have', async () => {
+    // An id from another profile is either gone, or belongs to a DIFFERENT
+    // container here — which opens as the wrong identity.
+    await importFile([record({ container: 'firefox-container-99' })]);
+    expect(stored()[0].container).toBeUndefined();
+  });
+
+  it('keeps a container this browser really has', async () => {
+    await importFile([record({ container: WORK })], [{ cookieStoreId: WORK, name: 'SBB' }]);
+    expect(stored()[0].container).toBe(WORK);
+  });
+
+  it('refuses a strike count that would delete the app on the next sync', async () => {
+    // missing:9 would make the very next read that misses it remove the app,
+    // straight past the two-read rail.
+    await importFile([record({ missing: 9 })]);
+    expect(stored()[0].missing).toBeUndefined();
+  });
+
+  it('restores apps as manual, so the next import cannot wipe the backup', async () => {
+    await importFile([record({ source: 'myapps' })]);
+    expect(stored()[0].source).toBe('manual');
+  });
+});
+
+describe('filtering by container', () => {
+  const WORK = 'firefox-container-2';
+  const HOME = 'firefox-container-3';
+  const url = 'https://outlook.example.com/';
+  const CONTAINED = [
+    { id: appId(url), name: 'Calendar', url, source: 'myapps' },
+    { id: appId(url, WORK), name: 'Calendar', url, source: 'myapps', container: WORK },
+    {
+      id: appId('https://jira.example.com/', HOME),
+      name: 'Jira',
+      url: 'https://jira.example.com/',
+      source: 'myapps',
+      container: HOME,
+    },
+  ];
+
+  const withContainers = {
+    apps: CONTAINED,
+    mutate: (c) => {
+      c.contextualIdentities = {
+        query: vi.fn(async () => [
+          { cookieStoreId: WORK, name: 'SBB', color: 'red' },
+          { cookieStoreId: HOME, name: 'Personal', color: 'green' },
+        ]),
+      };
+    },
+  };
+
+  it('offers the containers, with an "all" and a "no container" choice', async () => {
+    await mount(withContainers);
+    await flush();
+    expect([...$('filter-container').options].map((o) => o.textContent)).toEqual([
+      'All containers',
+      'No container',
+      'SBB',
+      'Personal',
+    ]);
+    expect($('filter-container-wrap').hidden).toBe(false);
+  });
+
+  it('narrows the list to one container', async () => {
+    await mount(withContainers);
+    await flush();
+    $('filter-container').value = WORK;
+    $('filter-container').dispatchEvent(new Event('change'));
+    expect(rowNames()).toEqual(['Calendar']);
+    expect(rows()[0].querySelector('.badge').textContent).toContain('SBB');
+  });
+
+  it('can show the ones with no container, which no text can express', async () => {
+    await mount(withContainers);
+    await flush();
+    $('filter-container').value = '';
+    $('filter-container').dispatchEvent(new Event('change'));
+    expect(rowNames()).toEqual(['Calendar']);
+    expect(rows()[0].querySelector('.badge').textContent).toBe('My Apps'); // no container chip
+  });
+
+  it('matches a container name typed into the text box', async () => {
+    // Same tile from two containers has an identical name and URL, so the
+    // container is the only thing that tells the two rows apart.
+    await mount(withContainers);
+    await flush();
+    $('app-filter').value = 'sbb';
+    $('app-filter').dispatchEvent(new Event('input'));
+    expect(rowNames()).toEqual(['Calendar']);
+    expect($('count').textContent).toBe('1 found · 3 total');
+  });
+
+  it('stays hidden on a browser without containers', async () => {
+    await mount({ apps: CONTAINED });
+    await flush();
+    expect($('filter-container-wrap').hidden).toBe(true);
+    expect(rows()).toHaveLength(3); // everything still listed
+  });
+});
+
 describe('editing a row', () => {
   async function startEdit(index = 0) {
     const buttons = [...rows()[index].querySelectorAll('button')];

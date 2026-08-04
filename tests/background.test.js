@@ -261,6 +261,240 @@ describe('removing apps that are gone from My Apps', () => {
   });
 });
 
+describe('containers', () => {
+  const WORK = 'firefox-container-2';
+  const inWork = (name, url) => ({
+    id: appId(url, WORK),
+    name,
+    url,
+    source: 'myapps',
+    container: WORK,
+  });
+
+  async function visitIn(c, cookieStoreId) {
+    c.tabs.get = vi.fn(async () => ({ status: 'complete', active: true, cookieStoreId }));
+    await c.tabs.onUpdated.emit(11, { status: 'complete' }, { url: MYAPPS_URL });
+    await runSync();
+  }
+
+  it('never adopts a container the user has not imported', () => {
+    // Opening My Apps in a container ONCE used to add every tile a second time
+    // as container-pinned copies: the whole list, duplicated, with no history.
+    return (async () => {
+      const c = await boot({ local: { apps: EXISTING } });
+      addTile('App 1', '1');
+      await visitIn(c, WORK);
+      expect(c.storage.local.set).not.toHaveBeenCalled();
+    })();
+  });
+
+  it('syncs a container it already has apps in, and leaves the others alone', async () => {
+    const gone = 'https://launcher.myapps.microsoft.com/api/signin/gone';
+    const c = await boot({
+      local: { apps: [...EXISTING, GONE, inWork('Work gone', gone)] },
+    });
+    addTile('App 1', '1'); // the work tenant now shows only this
+    await visitIn(c, WORK);
+    const stored = storedApps();
+    // The work app it could not find is struck…
+    expect(stored.find((a) => a.name === 'Work gone').missing).toBe(1);
+    // …while the default-context one is not even looked at.
+    expect(stored.find((a) => a.name === 'Gone').missing).toBeUndefined();
+    expect(stored.find((a) => a.name === 'App 1').container).toBe(WORK);
+  });
+});
+
+describe('the periodic sweep across containers', () => {
+  const WORK = 'firefox-container-2';
+  const HOME = 'firefox-container-3';
+  const contained = (name, url, container) => ({
+    id: appId(url, container),
+    name,
+    url,
+    source: 'myapps',
+    container,
+  });
+  const signin = (n) => `https://launcher.myapps.microsoft.com/api/signin/${n}`;
+
+  const targets = () => [
+    ...new Set(globalThis.chrome.scripting.executeScript.mock.calls.map((c) => c[0].target.tabId)),
+  ];
+
+  it('sweeps one tab per container, not one tab overall', async () => {
+    // Syncing whichever tab sorted first would leave every other container to
+    // go stale forever — and stale here means a revoked app that never leaves.
+    const c = await boot({
+      local: {
+        apps: [
+          app('Plain', signin('p'), 'myapps'), // the default context owns one too
+          contained('W', signin('w'), WORK),
+          contained('H', signin('h'), HOME),
+        ],
+      },
+    });
+    c.tabs.query = vi.fn(async () => [
+      { id: 1, cookieStoreId: 'firefox-default' },
+      { id: 2, cookieStoreId: WORK },
+      { id: 3, cookieStoreId: HOME },
+    ]);
+    c.tabs.get = vi.fn(async (id) => ({
+      status: 'complete',
+      active: false,
+      cookieStoreId: { 1: 'firefox-default', 2: WORK, 3: HOME }[id],
+    }));
+    addTile('App 1', '1');
+    await c.alarms.onAlarm.emit({ name: 'beeline-sync' });
+    await runSync(180000);
+    expect(targets()).toEqual([1, 2, 3]);
+  });
+
+  it('walks a container grid once, however many tabs it has open', async () => {
+    // Two loops on the same virtualised grid make each other skip slices, and a
+    // read that skipped slices is the short read the removal rails distrust.
+    const c = await boot({ local: { apps: [contained('W', signin('w'), WORK)] } });
+    c.tabs.query = vi.fn(async () => [
+      { id: 4, cookieStoreId: WORK },
+      { id: 5, cookieStoreId: WORK, active: true },
+      { id: 6, cookieStoreId: WORK },
+    ]);
+    c.tabs.get = vi.fn(async () => ({ status: 'complete', active: true, cookieStoreId: WORK }));
+    addTile('App 1', '1');
+    await c.alarms.onAlarm.emit({ name: 'beeline-sync' });
+    await runSync(180000);
+    expect(targets()).toEqual([5]); // the active one wins its store
+  });
+
+  it('leaves a scope it owns no apps in alone, in either direction', async () => {
+    // The mirror of "never adopt a container": a user whose apps all live in a
+    // container clicks a My Apps link in the default context. Nothing is known
+    // under that scope, so nothing looks suspect, and every tile would be added
+    // a SECOND time as a container-less record with no history.
+    const c = await boot({ local: { apps: [contained('W', signin('w'), WORK)] } });
+    c.tabs.query = vi.fn(async () => [{ id: 1, cookieStoreId: 'firefox-default' }]);
+    c.tabs.get = vi.fn(async () => ({
+      status: 'complete',
+      active: true,
+      cookieStoreId: 'firefox-default',
+    }));
+    addTile('App 1', '1');
+    await c.alarms.onAlarm.emit({ name: 'beeline-sync' });
+    await runSync(180000);
+    expect(c.storage.local.set).not.toHaveBeenCalled();
+  });
+
+  it('never sweeps a private window', async () => {
+    // Its store is rejected by isContained, so the read would be scoped to the
+    // DEFAULT context — a different tenant reconciled against the ordinary list.
+    const c = await boot({ local: { apps: [app('Plain', signin('p'), 'myapps')] } });
+    c.tabs.query = vi.fn(async () => [
+      { id: 20, cookieStoreId: 'firefox-private', incognito: true },
+    ]);
+    addTile('App 1', '1');
+    await c.alarms.onAlarm.emit({ name: 'beeline-sync' });
+    await runSync(60000);
+    expect(c.scripting.executeScript).not.toHaveBeenCalled();
+  });
+
+  it('skips discarded tabs but still sweeps their container', async () => {
+    const c = await boot({ local: { apps: [contained('W', signin('w'), WORK)] } });
+    c.tabs.query = vi.fn(async () => [
+      { id: 7, cookieStoreId: WORK, discarded: true },
+      { id: 8, cookieStoreId: WORK },
+    ]);
+    c.tabs.get = vi.fn(async () => ({ status: 'complete', active: false, cookieStoreId: WORK }));
+    addTile('App 1', '1');
+    await c.alarms.onAlarm.emit({ name: 'beeline-sync' });
+    await runSync(180000);
+    expect(targets()).toEqual([8]);
+  });
+
+  it('queues a second walk instead of running it, and instead of dropping it', async () => {
+    // Two at once would scroll one tab's grid from two directions. But throwing
+    // the second away is no better: a walk holds the lock for up to 90s per
+    // container, so an alarm landing mid-visit used to lose the whole sweep and
+    // wait a full period — six hours by default.
+    const c = await boot();
+    addTile('App 1', '1');
+    await c.tabs.onUpdated.emit(11, { status: 'complete' }, { url: MYAPPS_URL });
+    await vi.advanceTimersByTimeAsync(5000); // the visit sync is now mid-walk
+    expect(c.scripting.executeScript.mock.calls.length).toBeGreaterThan(0);
+
+    c.tabs.query = vi.fn(async () => [{ id: 99 }]);
+    await c.alarms.onAlarm.emit({ name: 'beeline-sync' });
+    await runSync(300000);
+
+    // Both were walked — the second was queued, not thrown away…
+    expect(targets()).toEqual([11, 99]);
+    // …and they never interleaved: every injection into the first tab came
+    // before the first injection into the second, which is the whole point of
+    // the lock. Two loops on one grid make each other skip slices.
+    const order = c.scripting.executeScript.mock.calls.map((call) => call[0].target.tabId);
+    expect(order.lastIndexOf(11)).toBeLessThan(order.indexOf(99));
+  });
+});
+
+describe('private windows', () => {
+  it('never syncs one you visit, which is the dangerous direction', async () => {
+    // The sweep already skipped these. The VISIT trigger did not — and a visit
+    // is foreground, which is the only mode allowed to remove. Another tenant's
+    // tiles would have been reconciled against the ordinary list.
+    const c = await boot({ local: { apps: [...EXISTING, GONE] } });
+    addTile('App 1', '1');
+    await c.tabs.onUpdated.emit(
+      11,
+      { status: 'complete' },
+      { url: MYAPPS_URL, incognito: true, cookieStoreId: 'firefox-private' },
+    );
+    await runSync();
+    expect(c.scripting.executeScript).not.toHaveBeenCalled();
+    expect(storedApps().map((a) => a.name)).toEqual(['Wiki', 'Gone']);
+  });
+});
+
+describe('a scope it owns nothing in', () => {
+  it('is refused BEFORE the grid walk, not after', async () => {
+    // Checking only inside the mutator meant a 90-second walk whose result was
+    // guaranteed to be discarded — while holding the lock every queued walk is
+    // waiting on.
+    const WORK = 'firefox-container-2';
+    const c = await boot({
+      local: {
+        apps: [
+          {
+            id: appId('https://launcher.myapps.microsoft.com/api/signin/w', WORK),
+            name: 'W',
+            url: 'https://launcher.myapps.microsoft.com/api/signin/w',
+            source: 'myapps',
+            container: WORK,
+          },
+        ],
+      },
+    });
+    c.tabs.get = vi.fn(async () => ({
+      status: 'complete',
+      active: true,
+      cookieStoreId: 'firefox-default',
+    }));
+    addTile('App 1', '1');
+    await c.tabs.onUpdated.emit(11, { status: 'complete' }, { url: MYAPPS_URL });
+    await runSync();
+    expect(c.scripting.executeScript).not.toHaveBeenCalled();
+  });
+
+  it('gives up when the tab itself cannot be read', async () => {
+    // Guessing "no container" would store a container tab's tiles as
+    // container-less duplicates.
+    const c = await boot();
+    c.tabs.get = vi.fn(async () => {
+      throw new Error('No tab with id 11');
+    });
+    addTile('App 1', '1');
+    await c.tabs.onUpdated.emit(11, { status: 'complete' }, { url: MYAPPS_URL });
+    await runSync();
+    expect(c.scripting.executeScript).not.toHaveBeenCalled();
+  });
+});
+
 describe('safety rules', () => {
   async function visit(c, ms) {
     await c.tabs.onUpdated.emit(11, { status: 'complete' }, { url: MYAPPS_URL });

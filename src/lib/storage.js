@@ -28,7 +28,19 @@ export const DEFAULT_SETTINGS = {
   // trigger that can actually PRUNE, because the tab is then in the foreground
   // and the virtualised grid really renders — see background.js.
   syncOnVisit: true,
+  // How a Firefox container shows up on a popup row: 'fill' paints the whole
+  // row in the container's colour, 'outline' frames it, 'edge' marks only the
+  // left side. Filled by default — with two rows for the same tile the colour
+  // IS the thing you read, and a thin edge asks you to look for it.
+  containerStyle: 'fill', // 'fill' | 'outline' | 'edge'
 };
+
+/** The container-marking choices the options page offers. */
+export const CONTAINER_STYLES = [
+  { value: 'fill', label: 'Fill the whole row' },
+  { value: 'outline', label: 'Outline the whole row' },
+  { value: 'edge', label: 'Mark the left edge only' },
+];
 
 /** The periodic-sync choices the options page offers, in minutes. */
 export const SYNC_INTERVALS = [

@@ -2,7 +2,9 @@ import { getApps, getStats, getSettings, recordLaunch } from '../lib/storage.js'
 import { rankApps, hostOf } from '../lib/ranking.js';
 import { withAwsRegion } from '../lib/apps.js';
 import { loadBookmarkItems } from '../lib/bookmarks.js';
-import { withContainer, listContainers } from '../lib/containers.js';
+import { withContainer, listContainers, containerColor } from '../lib/containers.js';
+
+const MYAPPS_URL = 'https://myapplications.microsoft.com/';
 
 const searchEl = document.getElementById('search');
 const resultsEl = document.getElementById('results');
@@ -22,8 +24,9 @@ let settings = {
   fallbackSearch: 'myapps',
   awsRegion: '',
   includeBookmarks: false,
+  containerStyle: 'fill',
 };
-let containers = new Map(); // cookieStoreId -> display name (Firefox only)
+let containers = new Map(); // cookieStoreId -> {name, color} (Firefox only)
 let current = [];
 let selected = 0;
 let selectedEl = null; // the highlighted row, kept so selection never walks the whole list
@@ -49,7 +52,13 @@ async function init() {
   // Focus before the storage read, not after: opening the popup and typing
   // immediately is the whole point, and a keystroke that lands before the list
   // is ready is then still in the box when the first render runs.
-  searchEl.focus();
+  //
+  // Asked for more than once on purpose. Firefox opens the panel and moves
+  // focus into it on its OWN schedule, and a focus() that lands before the
+  // panel has it is simply discarded — the popup then sits there swallowing
+  // every keystroke with nothing selected. Chrome takes the first one and the
+  // rest are no-ops.
+  focusSearch();
   try {
     // listContainers() is a local read that answers [] instantly on Chrome, so
     // it costs the first paint nothing and the rows can name their container
@@ -61,7 +70,7 @@ async function init() {
       listContainers(),
     ]);
     [apps, stats, settings] = [a, st, se];
-    containers = new Map(cs.map((c) => [c.cookieStoreId, c.name]));
+    containers = new Map(cs.map((c) => [c.cookieStoreId, c]));
   } catch {
     /* storage unavailable — fall back to the defaults above rather than a blank popup */
   }
@@ -72,9 +81,22 @@ async function init() {
   } catch {
     /* localStorage unavailable */
   }
+  // Drives which of the three container markings the rows get — see popup.css.
+  resultsEl.dataset.container = settings.containerStyle || 'fill';
   emptyEl.hidden = apps.length > 0;
   render();
+  focusSearch(); // …and again once there is a list to type against
   await loadBookmarks();
+}
+
+/**
+ * Put the caret in the search box, now and on the next frame. See init(): on
+ * Firefox the panel takes focus asynchronously, and whoever gets there last
+ * wins — so this is deliberately not a one-shot.
+ */
+function focusSearch() {
+  searchEl.focus();
+  schedule(() => searchEl.focus());
 }
 
 // Bookmarks are optional and read live. Loading them AFTER the first paint
@@ -106,7 +128,9 @@ async function loadBookmarks() {
 
 /** Two rendered rows are the same row when they launch the same thing. */
 function isSameResult(a, b) {
-  return a.fallback ? a.fallback === b.fallback && a.query === b.query : a.app?.id === b.app?.id;
+  return a.fallback
+    ? a.fallback === b.fallback && a.query === b.query && a.container === b.container
+    : a.app?.id === b.app?.id;
 }
 
 function wireEvents() {
@@ -133,8 +157,24 @@ function wireEvents() {
     },
     true,
   );
+  // Bound on the document, not on the search box: once a keyboard user has
+  // tabbed onto "Copy name" the box no longer sees the key, and Escape was the
+  // only way out of a menu that traps nothing and manages no focus.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !ctxEl.hidden) {
+      e.preventDefault();
+      closeCtxMenu();
+      searchEl.focus();
+    }
+  });
   resultsEl.addEventListener('scroll', closeCtxMenu);
   window.addEventListener('blur', closeCtxMenu);
+  // The panel can hand focus over after everything above has run. Take it back
+  // the moment that happens, or the first thing typed is lost.
+  window.addEventListener('focus', () => searchEl.focus());
+  // Clicking a row must not park focus on the row: this is a keyboard launcher
+  // and the next thing typed belongs in the box.
+  resultsEl.addEventListener('mouseup', () => searchEl.focus());
 }
 
 function render() {
@@ -196,7 +236,22 @@ function ensureRendered(i) {
 function buildFallbacks(query) {
   const mode = settings.fallbackSearch;
   const items = [];
-  if (mode === 'myapps' || mode === 'both') items.push({ fallback: 'myapps', query });
+  if (mode === 'myapps' || mode === 'both') {
+    // One row per container the user actually keeps apps in. My Apps in the
+    // work container lists a different tenant than the same page in the default
+    // context, so a single "search My Apps" row would send you to whichever
+    // account happened to be signed in there — usually not the one whose app
+    // you just failed to find. With no containers in play this is exactly one
+    // row, as it has always been.
+    // Every scope the user keeps apps in — including the case where that is ONE
+    // container and no default context at all, which is exactly the user this
+    // was written for. Falling back to [''] there sent them to the portal as
+    // whichever account happened to be signed in outside their container.
+    const scopes = [...new Set(apps.map((a) => a.container ?? ''))].sort();
+    for (const container of scopes.length > 0 ? scopes : ['']) {
+      items.push({ fallback: 'myapps', query, container });
+    }
+  }
   if (mode === 'web' || mode === 'both') items.push({ fallback: 'web', query });
   return items;
 }
@@ -278,12 +333,52 @@ function renderItem(r, i) {
   // container, for the same reason and more urgently: the same tile imported
   // from two containers is two rows that are otherwise identical, and picking
   // the wrong one signs in as the wrong person.
-  const from =
-    r.app.folder || (r.app.container ? containers.get(r.app.container) || r.app.container : '');
-  host.textContent = from ? `${from} · ${where}` : where;
+  // A container is shown as COLOUR, not as words: at a glance, in a list where
+  // the two rows are otherwise identical, a red edge against a pink one reads
+  // instantly where "SBB · outlook.office.com" has to be parsed. The same
+  // colour Firefox paints that container's tabs with, so it is already learned.
+  // The name still goes in the tooltip, for anyone who needs it spelled out and
+  // for a colour nobody can tell apart.
+  const known = r.app.container ? containers.get(r.app.container) : null;
+  if (r.app.container) {
+    const edge = containerColor(known?.color);
+    li.classList.add('contained');
+    // No known colour still gets an edge, in the text colour: "this one is
+    // pinned somewhere" is the part that matters, the hue is the shortcut.
+    li.style.setProperty('--container', edge || 'currentColor');
+  }
+  // Hover long enough and you get the WHOLE launch URL. The subtitle is only
+  // the host, and these URLs carry the account, the tenant and the region — the
+  // things you actually want to check before opening one of two near-identical
+  // rows. The container is named here too, since its colour cannot spell itself.
+  li.title = [
+    wrapForTooltip(r.app.url),
+    // A container can be deleted while its apps live on. Naming it by its raw
+    // id is ugly, but it is the difference between two visually identical rows
+    // and two tellable-apart ones — and this is the fallback a keyboard user
+    // relies on precisely when the colour has stopped meaning anything.
+    r.app.container ? `Opens in the ${known?.name || r.app.container} container` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  host.textContent = r.app.folder ? `${r.app.folder} · ${where}` : where;
   meta.append(name, host);
 
   li.append(icon, meta);
+  // The colour alone cannot carry this. Firefox's palette runs red / pink /
+  // orange, which blur into each other at a glance and are indistinguishable to
+  // a colour-blind reader — and this is a KEYBOARD launcher, so the tooltip that
+  // spells it out is never reached by the person most likely to need it. The
+  // name rides along in the container's own colour: colour to find the row,
+  // word to be sure of it.
+  if (r.app.container) {
+    const chip = document.createElement('span');
+    chip.className = 'cchip';
+    // A deleted container leaves apps behind that still name it. The raw id is
+    // honest; a missing chip would read as "no container" on a row that has one.
+    chip.textContent = known?.name || r.app.container;
+    li.append(chip);
+  }
   li.addEventListener('click', () => launch(i));
   li.addEventListener('contextmenu', (e) => openCtxMenu(e, r.app, i)); // right-click → copy menu
   li.addEventListener('mousemove', () => {
@@ -293,6 +388,37 @@ function renderItem(r, i) {
     }
   });
   return li;
+}
+
+/**
+ * Break a long URL into lines for a `title` tooltip.
+ *
+ * A native tooltip does not wrap: one unbroken 400-character launch URL — and
+ * these carry the tenant, the account and a GUID — stretches the box to the far
+ * edge of the screen, where most of it is off-screen and what is left looks
+ * empty. Broken at 90 characters it stays a readable block. Split on the
+ * separators the URL already has, so a line ends somewhere meaningful instead
+ * of mid-GUID.
+ */
+function wrapForTooltip(url, width = 90) {
+  const text = String(url ?? '');
+  if (text.length <= width) return text;
+  const lines = [];
+  let line = '';
+  for (const part of text.split(/(?=[?&/#])/)) {
+    // A single part longer than the width is hard-cut: better a blunt break
+    // than one line running off the screen on its own.
+    for (let i = 0; i < part.length; i += width) {
+      const piece = part.slice(i, i + width);
+      if (line && line.length + piece.length > width) {
+        lines.push(line);
+        line = '';
+      }
+      line += piece;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.join('\n');
 }
 
 function renderFallbackItem(r, i) {
@@ -308,8 +434,11 @@ function renderFallbackItem(r, i) {
   meta.className = 'meta';
   const name = document.createElement('span');
   name.className = 'name';
+  const where = r.container ? containers.get(r.container)?.name || r.container : '';
   name.textContent =
-    r.fallback === 'myapps' ? `Search My Apps for “${r.query}”` : `Search the web for “${r.query}”`;
+    r.fallback === 'myapps'
+      ? `Search My Apps for “${r.query}”${where ? ` (${where})` : ''}`
+      : `Search the web for “${r.query}”`;
   const host = document.createElement('span');
   host.className = 'host';
   host.textContent =
@@ -388,13 +517,13 @@ function move(delta) {
   updateSelection();
 }
 
-function updateSelection() {
+function updateSelection({ scroll = true } = {}) {
   const el = resultsEl.children[selected] || null;
   if (selectedEl && selectedEl !== el) selectedEl.classList.remove('selected');
   selectedEl = el;
   if (!el) return;
   el.classList.add('selected');
-  el.scrollIntoView({ block: 'nearest' });
+  if (scroll) el.scrollIntoView({ block: 'nearest' });
 }
 
 async function launch(i, background = false) {
@@ -436,7 +565,7 @@ async function launch(i, background = false) {
   if (settings.closeAfterLaunch) window.close();
 }
 
-function doFallback(r) {
+async function doFallback(r) {
   if (r.fallback === 'web') {
     if (chrome.search?.query) {
       chrome.search.query({ text: r.query, disposition: 'NEW_TAB' });
@@ -444,7 +573,9 @@ function doFallback(r) {
       chrome.tabs.create({ url: `https://duckduckgo.com/?q=${encodeURIComponent(r.query)}` });
     }
   } else {
-    chrome.tabs.create({ url: 'https://myapplications.microsoft.com/' });
+    // Opened in the container the row stands for, so the portal comes up as the
+    // account whose apps you were looking for.
+    chrome.tabs.create(await withContainer({ url: MYAPPS_URL }, r.container));
   }
   if (settings.closeAfterLaunch) window.close();
 }
@@ -461,7 +592,11 @@ function openOptions() {
 function openCtxMenu(e, app, i) {
   e.preventDefault();
   selected = i;
-  updateSelection();
+  // Marked WITHOUT scrolling: scrollIntoView on a partly-visible row scrolls
+  // #results, and the scroll listener that dismisses this menu then fires on the
+  // next frame — the menu closed itself the moment you right-clicked a row near
+  // the edge. The row is under the pointer already; it needs no scrolling to.
+  updateSelection({ scroll: false });
   ctxApp = app;
   ctxEl.hidden = false;
   // Show first (so we can measure it), then clamp inside the popup viewport.
