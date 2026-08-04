@@ -234,7 +234,6 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
   direction: rtl;
-  unicode-bidi: plaintext;
   text-align: left;
 }
 
@@ -325,7 +324,7 @@ kbd {
 }
 
 .badge {
-  min-width: 6ch;
+  min-width: calc(6ch + 18px); /* border-box: the padding and border are inside */
   flex: none;
   font-size: 11px;
   color: var(--accent);
