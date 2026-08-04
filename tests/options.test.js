@@ -613,6 +613,107 @@ describe('removing what the filter is showing', () => {
   });
 });
 
+describe('adding an app into a container', () => {
+  const WORK = 'firefox-container-2';
+
+  const withContainers = (apps = []) => ({
+    apps,
+    mutate: (c) => {
+      c.contextualIdentities = {
+        query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+      };
+    },
+  });
+
+  it('offers the containers on the add form', async () => {
+    await mount(withContainers());
+    await flush();
+    expect($('add-container-row').hidden).toBe(false);
+    expect([...$('add-container').options].map((o) => o.textContent)).toEqual([
+      'No container',
+      'SBB',
+    ]);
+  });
+
+  it('stores the app in the chosen container, id and all', async () => {
+    // The same URL opened as two identities is two destinations, so the
+    // container has to reach the id — not just the label.
+    await mount(withContainers());
+    await flush();
+    $('name').value = 'By hand';
+    $('url').value = 'https://byhand.example.com/';
+    $('add-container').value = WORK;
+    $('add-form').dispatchEvent(new Event('submit'));
+    await flush();
+    expect(stored()[0]).toMatchObject({
+      name: 'By hand',
+      container: WORK,
+      source: 'manual',
+      id: appId('https://byhand.example.com/', WORK),
+    });
+  });
+
+  it('adds a container-less app when none is chosen', async () => {
+    await mount(withContainers());
+    await flush();
+    $('name').value = 'Plain';
+    $('url').value = 'https://plain.example.com/';
+    $('add-form').dispatchEvent(new Event('submit'));
+    await flush();
+    expect(stored()[0].container).toBeUndefined();
+  });
+
+  it('hides the picker on a browser without containers', async () => {
+    await mount();
+    await flush();
+    expect($('add-container-row').hidden).toBe(true);
+  });
+});
+
+describe('the launcher pre-filter setting', () => {
+  const WORK = 'firefox-container-2';
+
+  const withContainers = {
+    apps: [],
+    mutate: (c) => {
+      c.contextualIdentities = {
+        query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+      };
+    },
+  };
+
+  it('starts with everything ticked', async () => {
+    await mount(withContainers);
+    await flush();
+    const boxes = [...document.querySelectorAll('#popup-containers input')];
+    expect(boxes.map((b) => b.dataset.scope)).toEqual(['', WORK]);
+    expect(boxes.every((b) => b.checked)).toBe(true);
+  });
+
+  it('saves the UNTICKED ones, so an empty list means show everything', async () => {
+    await mount(withContainers);
+    await flush();
+    const box = document.querySelector(`#popup-containers input[data-scope="${WORK}"]`);
+    box.checked = false;
+    box.dispatchEvent(new Event('change'));
+    await flush();
+    expect(globalThis.chrome.storage.sync.store.settings.hiddenContainers).toEqual([WORK]);
+  });
+
+  it('shows what was already unticked', async () => {
+    await mount({ ...withContainers, settings: { hiddenContainers: [''] } });
+    await flush();
+    const none = document.querySelector('#popup-containers input[data-scope=""]');
+    expect(none.checked).toBe(false);
+  });
+
+  it('stays hidden on a browser without containers', async () => {
+    await mount();
+    await flush();
+    expect($('popup-containers-row').hidden).toBe(true);
+  });
+});
+
 describe('a JSON file is not a browser', () => {
   const WORK = 'firefox-container-2';
 

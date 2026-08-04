@@ -52,6 +52,11 @@
         <form id="add-form" class="row">
           <input id="name" type="text" placeholder="Name" required />
           <input id="url" type="url" placeholder="https://…" required />
+          <!-- Firefox containers only; hidden when the browser has none. -->
+          <label id="add-container-row" class="select inline" hidden>
+            in
+            <select id="add-container"></select>
+          </label>
           <button type="submit">Add</button>
         </form>
       </section>
@@ -89,6 +94,15 @@
           while the popup is open — never stored, never sent anywhere. Turning this on asks for the
           bookmarks permission; turning it off hands the permission back.
         </p>
+
+        <fieldset id="popup-containers-row" class="group" hidden>
+          <legend>Show in the launcher</legend>
+          <div id="popup-containers" class="checks"></div>
+          <p class="note">
+            Which containers' apps the popup lists. Everything is shown until you untick something —
+            this only narrows what you see, it never removes an app or stops it syncing.
+          </p>
+        </fieldset>
 
         <h3>Keeping in sync</h3>
         <label class="select">

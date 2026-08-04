@@ -28,15 +28,26 @@ export const DEFAULT_SETTINGS = {
   // trigger that can actually PRUNE, because the tab is then in the foreground
   // and the virtualised grid really renders — see background.js.
   syncOnVisit: true,
-  // How a Firefox container shows up on a popup row: 'fill' paints the whole
-  // row in the container's colour, 'outline' frames it, 'edge' marks only the
-  // left side. Filled by default — with two rows for the same tile the colour
-  // IS the thing you read, and a thin edge asks you to look for it.
-  containerStyle: 'fill', // 'fill' | 'outline' | 'edge'
+  // How a Firefox container shows up on a popup row. The name badge is on every
+  // marked row whatever this says — it is the part that survives colour
+  // blindness and a deleted container — and this chooses how loudly the ROW
+  // itself joins in: 'chip' lets the badge do it alone, 'fill' paints the whole
+  // row, 'outline' frames it, 'edge' marks the left side. The badge alone is
+  // the default: it identifies the container exactly as well and leaves the
+  // list quiet enough to read.
+  containerStyle: 'chip', // 'chip' | 'fill' | 'outline' | 'edge'
+  // Containers whose apps the popup does NOT show. Stored as the hidden set
+  // rather than the shown one on purpose: an empty list then means "show
+  // everything", which is the right default and the right answer on a browser
+  // with no containers at all. The other way round, an empty list would be
+  // indistinguishable from "the user unticked every box".
+  // '' stands for the ordinary, container-less context.
+  hiddenContainers: [],
 };
 
 /** The container-marking choices the options page offers. */
 export const CONTAINER_STYLES = [
+  { value: 'chip', label: 'Just the container badge' },
   { value: 'fill', label: 'Fill the whole row' },
   { value: 'outline', label: 'Outline the whole row' },
   { value: 'edge', label: 'Mark the left edge only' },

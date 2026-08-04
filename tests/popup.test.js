@@ -791,14 +791,15 @@ describe('how strongly a container is marked', () => {
     delete globalThis.browser;
   });
 
-  it('fills the whole row by default', async () => {
-    // With two rows for the same tile the colour IS what you read; a thin edge
-    // asks you to go looking for it.
+  it('shows just the badge by default', async () => {
+    // It names the container exactly as precisely as a coloured row does, and
+    // leaves a list of several hundred rows quiet enough to read.
     await mountWith();
-    expect(document.getElementById('results').dataset.container).toBe('fill');
+    expect(document.getElementById('results').dataset.container).toBe('chip');
+    expect(rows()[0].querySelector('.cchip').textContent).toBe('SBB');
   });
 
-  it.each(['outline', 'edge'])('honours the %s setting', async (style) => {
+  it.each(['fill', 'outline', 'edge'])('honours the %s setting', async (style) => {
     await mountWith(style);
     expect(document.getElementById('results').dataset.container).toBe(style);
     expect(rows()[0].classList.contains('contained')).toBe(true); // still marked
@@ -867,5 +868,89 @@ describe('the My Apps fallback with containers', () => {
     expect(rows()[0].querySelector('.name').textContent).toBe(
       'Search My Apps for “nothing matches this”',
     );
+  });
+});
+
+describe('the launcher container pre-filter', () => {
+  const WORK = 'firefox-container-2';
+  const HOME = 'firefox-container-3';
+  const APPS = [
+    { id: 'p1', name: 'Plain', url: 'https://plain.example.com/', source: 'myapps' },
+    {
+      id: 'p2',
+      name: 'Worky',
+      url: 'https://worky.example.com/',
+      source: 'myapps',
+      container: WORK,
+    },
+    {
+      id: 'p3',
+      name: 'Homey',
+      url: 'https://homey.example.com/',
+      source: 'myapps',
+      container: HOME,
+    },
+  ];
+
+  async function mountHiding(hiddenContainers) {
+    globalThis.chrome = makeChrome({
+      local: { apps: APPS },
+      sync: { settings: hiddenContainers ? { hiddenContainers } : {} },
+    });
+    globalThis.browser = {
+      contextualIdentities: {
+        query: vi.fn(async () => [
+          { cookieStoreId: WORK, name: 'SBB', color: 'red' },
+          { cookieStoreId: HOME, name: 'Personal', color: 'green' },
+        ]),
+      },
+      permissions: { contains: vi.fn(async () => true) },
+    };
+    loadPage('popup');
+    vi.resetModules();
+    await import('../src/popup/popup.js');
+    await flush();
+  }
+
+  afterEach(() => {
+    delete globalThis.browser;
+  });
+
+  const names = () => rows().map((li) => li.querySelector('.name').textContent);
+
+  it('shows everything when nothing is unticked', async () => {
+    // The stored value is the HIDDEN set, so empty means show all — which is
+    // also what every browser without containers has.
+    await mountHiding();
+    expect(names().sort()).toEqual(['Homey', 'Plain', 'Worky']);
+  });
+
+  it('mixes: two of three', async () => {
+    await mountHiding([HOME]);
+    expect(names().sort()).toEqual(['Plain', 'Worky']);
+  });
+
+  it('can hide the container-less apps too', async () => {
+    await mountHiding(['']);
+    expect(names().sort()).toEqual(['Homey', 'Worky']);
+  });
+
+  it('narrows the fallback rows to the same scopes', async () => {
+    // Offering "Search My Apps (Personal)" while Personal is hidden would send
+    // the user to an account they have chosen not to see.
+    await mountHiding([HOME]);
+    const search = document.getElementById('search');
+    search.value = 'nothing matches this';
+    search.dispatchEvent(new Event('input'));
+    expect(names()).toEqual([
+      'Search My Apps for “nothing matches this”',
+      'Search My Apps for “nothing matches this” (SBB)',
+    ]);
+  });
+
+  it('says the list is empty when the filter hides everything', async () => {
+    await mountHiding(['', WORK, HOME]);
+    expect(rows()).toHaveLength(0);
+    expect(document.getElementById('empty').hidden).toBe(false);
   });
 });

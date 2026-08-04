@@ -431,3 +431,28 @@ section h3:first-of-type {
 [hidden] {
   display: none !important;
 }
+
+/* The launcher's container pre-filter: a short list of checkboxes, because a
+ * multi-select box hides its own state behind a scrollbar and gives no clue
+ * that more than one is pickable. */
+.group {
+  margin: 18px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.group legend {
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}

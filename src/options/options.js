@@ -597,7 +597,15 @@ async function onAdd(e) {
   e.preventDefault();
   const name = document.getElementById('name').value;
   const url = document.getElementById('url').value;
-  const app = normalizeApp({ name, url, source: 'manual' });
+  const picker = document.getElementById('add-container');
+  const app = normalizeApp({
+    name,
+    url,
+    // A hand-added app belongs to a container just as much as an imported one:
+    // the same URL opened as two identities is two different destinations.
+    container: isContained(picker?.value) ? picker.value : '',
+    source: 'manual',
+  });
   if (!app) {
     setStatus('Enter a name and a valid https:// URL.', 'error');
     return;
@@ -1143,6 +1151,39 @@ async function populateContainers() {
   }
   document.getElementById('filter-container-wrap').hidden = false;
 
+  // The manual add form: same choices as the import picker.
+  const add = document.getElementById('add-container');
+  for (const [value, label] of [
+    ['', 'No container'],
+    ...found.map((c) => [c.cookieStoreId, c.name]),
+  ]) {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = label;
+    add.append(o);
+  }
+  document.getElementById('add-container-row').hidden = false;
+
+  // The launcher's pre-filter. One box per scope, all ticked, because the
+  // stored value is the HIDDEN set — so "nothing stored" means "show all".
+  const hidden = new Set((await getSettings().catch(() => ({}))).hiddenContainers ?? []);
+  const box = document.getElementById('popup-containers');
+  for (const [value, label] of [
+    ['', 'No container'],
+    ...found.map((c) => [c.cookieStoreId, c.name]),
+  ]) {
+    const wrap = document.createElement('label');
+    wrap.className = 'check';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.dataset.scope = value;
+    input.checked = !hidden.has(value);
+    input.addEventListener('change', onSettingChange);
+    wrap.append(input, document.createTextNode(` ${label}`));
+    box.append(wrap);
+  }
+  document.getElementById('popup-containers-row').hidden = false;
+
   // Only worth offering once there is a container to mark.
   const style = document.getElementById('container-style');
   for (const { value, label } of CONTAINER_STYLES) {
@@ -1255,6 +1296,11 @@ async function onSettingChange() {
     syncIntervalMin: Number(document.getElementById('sync-interval').value) || 0,
     syncOnVisit: document.getElementById('sync-on-visit').checked,
     containerStyle: document.getElementById('container-style').value,
+    // The unticked boxes. Read from the DOM rather than kept in a variable so
+    // the form is the single source of truth, as every other setting here is.
+    hiddenContainers: [...document.querySelectorAll('#popup-containers input')]
+      .filter((i) => !i.checked)
+      .map((i) => i.dataset.scope),
   });
   applyTheme(theme); // reflect the new theme on this page immediately
   setStatus('Settings saved.', 'ok');

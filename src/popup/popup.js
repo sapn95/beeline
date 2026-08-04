@@ -24,7 +24,8 @@ let settings = {
   fallbackSearch: 'myapps',
   awsRegion: '',
   includeBookmarks: false,
-  containerStyle: 'fill',
+  containerStyle: 'chip',
+  hiddenContainers: [],
 };
 let containers = new Map(); // cookieStoreId -> {name, color} (Firefox only)
 let current = [];
@@ -82,8 +83,8 @@ async function init() {
     /* localStorage unavailable */
   }
   // Drives which of the three container markings the rows get — see popup.css.
-  resultsEl.dataset.container = settings.containerStyle || 'fill';
-  emptyEl.hidden = apps.length > 0;
+  resultsEl.dataset.container = settings.containerStyle || 'chip';
+  emptyEl.hidden = visibleApps().length > 0;
   render();
   focusSearch(); // …and again once there is a list to type against
   await loadBookmarks();
@@ -182,7 +183,12 @@ function render() {
   const q = searchEl.value.trim();
   // Bookmarks join the pool only once you type: they are a search source, not a
   // list. Showing hundreds of them on open would bury the apps.
-  const pool = q && bookmarks.length > 0 ? apps.concat(bookmarks) : apps;
+  // The pre-filter from the settings. It narrows what the LAUNCHER lists and
+  // nothing else: the apps are still stored, still synced, still there when the
+  // box is ticked again. Stored as the hidden set, so an empty list — and every
+  // browser without containers — shows everything.
+  const shown = visibleApps();
+  const pool = q && bookmarks.length > 0 ? shown.concat(bookmarks) : shown;
   current = rankApps(pool, searchEl.value, Date.now(), stats);
   // When you have something to search but none of it matches, offer a fallback.
   if (current.length === 0 && q && pool.length > 0) {
@@ -233,6 +239,13 @@ function ensureRendered(i) {
   paintMore(i - painted + 1);
 }
 
+/** The apps the launcher may list, after the settings' container pre-filter. */
+function visibleApps() {
+  const hidden = new Set(settings.hiddenContainers ?? []);
+  if (hidden.size === 0) return apps;
+  return apps.filter((a) => !hidden.has(a.container ?? ''));
+}
+
 function buildFallbacks(query) {
   const mode = settings.fallbackSearch;
   const items = [];
@@ -247,7 +260,7 @@ function buildFallbacks(query) {
     // container and no default context at all, which is exactly the user this
     // was written for. Falling back to [''] there sent them to the portal as
     // whichever account happened to be signed in outside their container.
-    const scopes = [...new Set(apps.map((a) => a.container ?? ''))].sort();
+    const scopes = [...new Set(visibleApps().map((a) => a.container ?? ''))].sort();
     for (const container of scopes.length > 0 ? scopes : ['']) {
       items.push({ fallback: 'myapps', query, container });
     }

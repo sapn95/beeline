@@ -232,7 +232,11 @@ footer button {
   --container-tint: color-mix(in srgb, var(--container, transparent) 14%, transparent);
 }
 
-/* Default: the whole row carries the colour. */
+/* Default 'chip': no row decoration at all — the badge below is the marking.
+ * Nothing to declare, and that is the point: it identifies the container just
+ * as precisely and leaves a list of several hundred rows quiet enough to read.
+ *
+ * The louder strengths: */
 #results[data-container='fill'] .item.contained {
   border: 2px solid var(--container, currentColor);
   padding: 6px 8px;
