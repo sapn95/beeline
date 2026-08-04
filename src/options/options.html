@@ -32,7 +32,9 @@
                line it read as an unrelated setting. -->
           <label id="import-container-row" class="select inline" hidden>
             Read
-            <select id="import-container"></select>
+            <!-- aria-label because "Read" alone is not a usable name out of
+                 context, which is how a screen reader announces it. -->
+            <select id="import-container" aria-label="Read from which container"></select>
           </label>
           <button id="import-myapps" type="button">Import from My Apps</button>
           <!-- The JSON pair is a different job — moving the list in and out of a
@@ -55,7 +57,7 @@
           <!-- Firefox containers only; hidden when the browser has none. -->
           <label id="add-container-row" class="select inline" hidden>
             in
-            <select id="add-container"></select>
+            <select id="add-container" aria-label="Add to which container"></select>
           </label>
           <button type="submit">Add</button>
         </form>

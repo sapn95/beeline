@@ -62,7 +62,7 @@ it.
   from an already-open My Apps tab.
 - **search** — only used if you enable the "web" fallback: it runs your typed
   query in your browser's default search engine when no app matches.
-- **favicon** — to show each entry's site icon in the launcher. It reads the
+- **favicon** _(Chrome only; the Firefox build ships without it)_ — to show each entry's site icon in the launcher. It reads the
   icon your browser has **already cached locally** for a page you have visited.
   No network request is made, no page is read, and nothing is transmitted. Only
   entries that carry no icon of their own (bookmarks, apps whose tenant uploaded

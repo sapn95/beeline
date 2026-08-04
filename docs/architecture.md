@@ -22,6 +22,7 @@ flowchart TB
       direction LR
       ranking["ranking.js"] --> fuzzy["fuzzy.js"]
       apps["apps.js"]
+      containers["containers.js"]
       importer["importer.js"]
       collector["collector.js<br/>virtual-scroll convergence"]
       storage["storage.js"]

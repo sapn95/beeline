@@ -635,6 +635,32 @@ describe('adding an app into a container', () => {
     ]);
   });
 
+  it('asks for the cookies permission before promising a container', async () => {
+    // Without it the cookieStoreId is dropped at launch: the app would wear a
+    // container badge and quietly open as the wrong identity.
+    await mount({
+      ...withContainers(),
+      mutate: (c) => {
+        c.contextualIdentities = {
+          query: vi.fn(async () => [{ cookieStoreId: WORK, name: 'SBB', color: 'red' }]),
+        };
+        c.permissions.request = vi.fn(async () => false);
+      },
+    });
+    await flush();
+    $('name').value = 'Denied';
+    $('url').value = 'https://denied.example.com/';
+    $('add-container').value = WORK;
+    $('add-form').dispatchEvent(new Event('submit'));
+    await flush();
+    expect(globalThis.chrome.permissions.request).toHaveBeenCalledWith({
+      permissions: ['cookies'],
+    });
+    // Added, but honestly — without the container it cannot honour.
+    expect(stored()[0].container).toBeUndefined();
+    expect(status()).toMatch(/added without one/);
+  });
+
   it('stores the app in the chosen container, id and all', async () => {
     // The same URL opened as two identities is two destinations, so the
     // container has to reach the id — not just the label.
@@ -744,8 +770,28 @@ describe('a JSON file is not a browser', () => {
   it('drops a container this browser does not have', async () => {
     // An id from another profile is either gone, or belongs to a DIFFERENT
     // container here — which opens as the wrong identity.
-    await importFile([record({ container: 'firefox-container-99' })]);
+    await importFile(
+      [record({ container: 'firefox-container-99' })],
+      [{ cookieStoreId: WORK, name: 'SBB' }],
+    );
     expect(stored()[0].container).toBeUndefined();
+  });
+
+  it('keeps the container when there is no list to judge it against', async () => {
+    // Stripping it would MERGE two apps that differ only by container into one,
+    // and one identity's row would vanish. An unknown container is handled
+    // everywhere else; a silently lost app is not.
+    const url = 'https://portal.example.com/';
+    await importFile([
+      { name: 'Portal', url, container: 'firefox-container-2' },
+      { name: 'Portal', url, container: 'firefox-container-3' },
+    ]);
+    expect(stored()).toHaveLength(2);
+    expect(
+      stored()
+        .map((a) => a.container)
+        .sort(),
+    ).toEqual(['firefox-container-2', 'firefox-container-3']);
   });
 
   it('keeps a container this browser really has', async () => {

@@ -132,7 +132,9 @@ deep link behave identically.
 
 Settings cover new-tab vs. current-tab, whether the popup closes after
 launching, the fallback search, an AWS region to deep-link consoles into, the
-theme (auto / light / dark), and whether bookmarks join the search. The same
+theme (auto / light / dark), whether bookmarks join the search, how often it
+syncs with My Apps — and, on Firefox, which containers' apps the launcher lists
+and how loudly a container is marked on a row. The same
 page shows the launcher's current keyboard shortcut and links to where the
 browser lets you rebind it.
 

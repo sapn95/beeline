@@ -125,11 +125,25 @@ export async function recordLaunch(id, now) {
   return stats;
 }
 
+/**
+ * Settings, with the defaults filled in — and with the one array value proved
+ * to BE an array.
+ *
+ * Two traps this closes. A spread is shallow, so every caller used to get the
+ * SAME `hiddenContainers` array as the module default: one `.push()` anywhere
+ * would have poisoned it for every context. And stored settings are just JSON
+ * from disk, so `hiddenContainers` could be anything at all — a non-array
+ * reaches `new Set(...)` in the popup and throws where nothing catches it,
+ * leaving a blank launcher.
+ */
 export async function getSettings() {
   const area = syncArea();
-  if (!area) return { ...DEFAULT_SETTINGS };
-  const res = await area.get(SETTINGS_KEY);
-  return { ...DEFAULT_SETTINGS, ...res?.[SETTINGS_KEY] };
+  const stored = area ? (await area.get(SETTINGS_KEY))?.[SETTINGS_KEY] : null;
+  const merged = { ...DEFAULT_SETTINGS, ...stored };
+  merged.hiddenContainers = Array.isArray(merged.hiddenContainers)
+    ? merged.hiddenContainers.filter((v) => typeof v === 'string')
+    : [];
+  return merged;
 }
 
 export async function saveSettings(settings) {

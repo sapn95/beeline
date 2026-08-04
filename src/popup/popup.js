@@ -84,7 +84,7 @@ async function init() {
   }
   // Drives which of the three container markings the rows get — see popup.css.
   resultsEl.dataset.container = settings.containerStyle || 'chip';
-  emptyEl.hidden = visibleApps().length > 0;
+  showEmptyState();
   render();
   focusSearch(); // …and again once there is a list to type against
   await loadBookmarks();
@@ -191,7 +191,10 @@ function render() {
   const pool = q && bookmarks.length > 0 ? shown.concat(bookmarks) : shown;
   current = rankApps(pool, searchEl.value, Date.now(), stats);
   // When you have something to search but none of it matches, offer a fallback.
-  if (current.length === 0 && q && pool.length > 0) {
+  // Gated on what the user HAS, not on what survived the filter: with every
+  // container unticked the pool is empty, and gating on that left them with no
+  // rows and no way to search either.
+  if (current.length === 0 && q && (apps.length > 0 || bookmarks.length > 0)) {
     current = buildFallbacks(q);
   }
   selected = 0;
@@ -239,6 +242,24 @@ function ensureRendered(i) {
   paintMore(i - painted + 1);
 }
 
+/**
+ * The "nothing here" panel, and WHICH nothing it is. "No apps yet — add or
+ * import" is a lie when the apps exist and the container pre-filter is simply
+ * hiding all of them: it offers the one way out that cannot help, and nothing
+ * on screen points at the filter that is actually responsible.
+ */
+function showEmptyState() {
+  const shown = visibleApps().length;
+  emptyEl.hidden = shown > 0;
+  if (shown > 0) return;
+  const filteredOut = apps.length > 0;
+  emptyEl.querySelector('p').textContent = filteredOut
+    ? `All ${apps.length} of your apps are hidden by the container filter.`
+    : 'No apps yet.';
+  const btn = document.getElementById('manage');
+  if (btn) btn.textContent = filteredOut ? 'Change that in settings' : 'Add or import apps';
+}
+
 /** The apps the launcher may list, after the settings' container pre-filter. */
 function visibleApps() {
   const hidden = new Set(settings.hiddenContainers ?? []);
@@ -261,7 +282,8 @@ function buildFallbacks(query) {
     // was written for. Falling back to [''] there sent them to the portal as
     // whichever account happened to be signed in outside their container.
     const scopes = [...new Set(visibleApps().map((a) => a.container ?? ''))].sort();
-    for (const container of scopes.length > 0 ? scopes : ['']) {
+    if (scopes.length === 0) scopes.push('');
+    for (const container of scopes) {
       items.push({ fallback: 'myapps', query, container });
     }
   }
@@ -337,7 +359,14 @@ function renderItem(r, i) {
   meta.className = 'meta';
   const name = document.createElement('span');
   name.className = 'name';
-  name.append(...highlight(r.app.name, r.field === 'name' ? r.positions : []));
+  // Wrapped in <bdi>: the row cuts names at the FRONT via direction:rtl (see
+  // popup.css .name), and that alone moves any neutral character at either edge
+  // to the other end — "[PROD] Vault" rendered as "Vault [PROD]", brackets
+  // mirrored, and "Acme Corp." as ".Acme Corp". A bidi isolate keeps the text
+  // in its own order while the ellipsis stays at the start where it belongs.
+  const bdi = document.createElement('bdi');
+  bdi.append(...highlight(r.app.name, r.field === 'name' ? r.positions : []));
+  name.append(bdi);
   const host = document.createElement('span');
   host.className = 'host';
   const where = hostOf(r.app.url) || r.app.url;

@@ -38,14 +38,6 @@ npm run package          # produces beeline-v0.1.0.zip
     Bookmarks are read live while the popup is open, are never stored by the
     extension, and are never transmitted anywhere. Unticking the setting calls
     `chrome.permissions.remove` and gives the permission back."
-  - `contextualIdentities` (Firefox only) — "Reads the names and colours of the
-    user's Firefox containers, so an app imported inside one can say which
-    container it belongs to and be opened there. Firefox provides no optional
-    form of this permission. Nothing inside a container is read."
-  - `cookies` (Firefox only, optional) — "Requested the first time the user
-    chooses a container. No cookie is ever read or written: this permission is
-    what makes Firefox honour a cookieStoreId on tabs.create / windows.create,
-    which is the only way to open a tab in a container."
   - `favicon` — "Used to show each entry's site icon in the launcher popup.
     Apps imported from My Apps that have no logo, bookmarks, and hand-added apps
     carry no icon of their own, so the extension reads the icon Chrome has
@@ -200,6 +192,20 @@ alongside the Chrome zip.
 
 **Local testing:** `about:debugging#/runtime/this-firefox` → **Load Temporary
 Add-on** → pick `dist-firefox/manifest.json`.
+
+Permission notes for the AMO listing — the Firefox build ships two permissions
+the Chrome one does not, and AMO reviewers ask about both:
+
+- `contextualIdentities` (Firefox only) — "Reads the names and colours of the
+  user's Firefox containers, so an app imported inside one can say which
+  container it belongs to and be opened there. Firefox provides no optional
+  form of this permission. Nothing inside a container is read."
+- `cookies` (Firefox only, optional) — "Requested the first time the user
+  chooses a container. No cookie is ever read or written: this permission is
+  what makes Firefox honour a cookieStoreId on tabs.create / windows.create,
+  which is the only way to open a tab in a container."
+
+It also ships WITHOUT `favicon`, which is Chrome-only.
 
 **Automated publish (AMO):** the release workflow signs + submits the Firefox
 build when these secrets are set (otherwise it's skipped with a warning):

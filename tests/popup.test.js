@@ -948,9 +948,24 @@ describe('the launcher container pre-filter', () => {
     ]);
   });
 
-  it('says the list is empty when the filter hides everything', async () => {
+  it('says WHY the list is empty when the filter hides everything', async () => {
+    // "No apps yet — add or import" is a lie when the apps exist and the filter
+    // is hiding them, and it offers the one way out that cannot help.
     await mountHiding(['', WORK, HOME]);
     expect(rows()).toHaveLength(0);
-    expect(document.getElementById('empty').hidden).toBe(false);
+    const empty = document.getElementById('empty');
+    expect(empty.hidden).toBe(false);
+    expect(empty.querySelector('p').textContent).toBe(
+      'All 3 of your apps are hidden by the container filter.',
+    );
+    expect(document.getElementById('manage').textContent).toBe('Change that in settings');
+  });
+
+  it('still offers a search when the filter emptied the pool', async () => {
+    await mountHiding(['', WORK, HOME]);
+    const search = document.getElementById('search');
+    search.value = 'jira';
+    search.dispatchEvent(new Event('input'));
+    expect(rows().length).toBeGreaterThan(0);
   });
 });

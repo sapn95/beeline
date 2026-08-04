@@ -13,7 +13,13 @@ import {
   scrollMyAppsStepInPage,
 } from '../lib/importer.js';
 import { accumulateApps } from '../lib/collector.js';
-import { listContainers, withContainer, isContained, containerColor } from '../lib/containers.js';
+import {
+  listContainers,
+  withContainer,
+  isContained,
+  containerColor,
+  requestCookiesPermission,
+} from '../lib/containers.js';
 
 const MYAPPS_ORIGIN = 'https://myapplications.microsoft.com/';
 const MYAPPS_PATTERN = 'https://myapplications.microsoft.com/*';
@@ -43,7 +49,8 @@ let rowTail = null;
 let pending = [];
 let pendingAppsRefresh = false; // a storage change arrived while editing — apply it on exit
 let containerInfo = new Map(); // cookieStoreId -> {name, color}, for the row chips
-let settingsLoaded = false; // until the form holds the SAVED settings, never write it back
+let settingsLoaded = false;
+let savedSettings = {}; // what storage held at load, for values no control speaks for // until the form holds the SAVED settings, never write it back
 
 async function init() {
   // Wire the controls FIRST. If a storage read then fails, the page is still a
@@ -122,10 +129,16 @@ function wireControls() {
   // Skipped while editing a row so an incoming change can't discard your edit.
   chrome.storage.onChanged.addListener(async (changes, area) => {
     if (area !== 'local' || !changes.apps) return;
-    if (editingId !== null) {
+    // Deferred only while the edit row is actually ON SCREEN. Filtering it away
+    // leaves no Cancel button to press, so `editingId` never cleared and every
+    // later refresh was deferred forever: storage held five apps, the page
+    // showed three, and only a reload recovered.
+    if (editVisible()) {
       pendingAppsRefresh = true; // don't clobber the open edit row — apply on exit
       return;
     }
+    editingId = null;
+    editDraft = null;
     apps = await getApps();
     renderList();
   });
@@ -256,6 +269,12 @@ async function ensureFresh() {
 
 // Live progress shown in the list area during a (possibly long) import.
 function showImportProgress(count) {
+  // This writes to the list without going through renderList, so a tail queued
+  // by a filter keystroke a frame earlier would append rows underneath the
+  // progress bar.
+  cancelRowTail();
+  pending = [];
+  rowsPainted = 0;
   countEl.textContent = 'importing…';
   const li = document.createElement('li');
   li.className = 'empty-row import-progress';
@@ -281,6 +300,13 @@ function showImportProgress(count) {
  * "which identity", which no amount of typing can express: there is no text
  * that means "the ones with no container at all".
  */
+/** Is the row being edited still on screen? */
+function editVisible() {
+  if (editingId === null) return false;
+  const app = apps.find((x) => x.id === editingId);
+  return !!app && matchesFilters(app);
+}
+
 function matchesFilters(a) {
   const q = appFilter.trim().toLowerCase();
   const inContainer = containerFilter === 'all' || (a.container ?? '') === containerFilter;
@@ -398,7 +424,12 @@ function renderRow(app) {
   grow.className = 'grow';
   const name = document.createElement('div');
   name.className = 'app-name';
-  name.textContent = app.name;
+  // <bdi>, for the same reason as the popup: the row cuts at the front via
+  // direction:rtl, which on its own moves a bracket or a full stop from one end
+  // of the name to the other.
+  const bdi = document.createElement('bdi');
+  bdi.textContent = app.name;
+  name.append(bdi);
   const url = document.createElement('div');
   url.className = 'app-url';
   url.textContent = app.url;
@@ -598,12 +629,22 @@ async function onAdd(e) {
   const name = document.getElementById('name').value;
   const url = document.getElementById('url').value;
   const picker = document.getElementById('add-container');
+  // Asked FIRST, inside the submit, and before any await: without `cookies` a
+  // cookieStoreId is dropped at launch, so the app would be stored with a
+  // container, wear its badge, and quietly open as the wrong identity. Firefox
+  // grants this one silently; being refused means the app is added without a
+  // container rather than with a promise it cannot keep.
+  let container = isContained(picker?.value) ? picker.value : '';
+  if (container && !(await requestCookiesPermission())) {
+    container = '';
+    setStatus('Container access denied — the app was added without one.', 'info');
+  }
   const app = normalizeApp({
     name,
     url,
     // A hand-added app belongs to a container just as much as an imported one:
     // the same URL opened as two identities is two different destinations.
-    container: isContained(picker?.value) ? picker.value : '',
+    container,
     source: 'manual',
   });
   if (!app) {
@@ -629,6 +670,11 @@ function visibleApps() {
 
 async function onClear() {
   await ensureFresh(); // confirm against the real current list, not a stale one
+  // …and SHOW that list before asking about it. ensureFresh can bring in apps
+  // that arrived while a row was being edited, and "the ones currently shown"
+  // was then computed from rows the page had never drawn: the dialog said three
+  // and deleted three, of which the user had seen one.
+  renderList();
   // Deliberately scoped to the filter. Clearing one container's apps meant
   // removing them one row at a time, and the button next to a filtered list
   // that says "Remove all" but empties everything behind it is a trap.
@@ -1004,12 +1050,18 @@ async function onImportFile(e) {
   //   source    — 'myapps' makes the app prunable, so a backup restored after a
   //     reinstall is wiped by the first complete import. A file is a MANUAL act;
   //     what comes out of one is a manual app until a real import says otherwise.
-  const live = new Set((await listContainers()).map((c) => c.cookieStoreId));
+  const found = await listContainers();
+  const live = new Set(found.map((c) => c.cookieStoreId));
   const cleaned = (Array.isArray(parsed) ? parsed : []).map((a) => ({
     ...a,
     missing: undefined,
     source: 'manual',
-    container: live.has(a?.container) ? a.container : undefined,
+    // Only judged when there is a list to judge against. With none — containers
+    // switched off, or the query failed — stripping the field would MERGE two
+    // apps that differ only by container into one, and one identity's row would
+    // vanish. An unknown container is handled everywhere else (raw id on the
+    // chip, opens in the ordinary context); a silently lost app is not.
+    container: found.length === 0 || live.has(a?.container) ? a?.container : undefined,
   }));
   try {
     let added = 0;
@@ -1256,6 +1308,7 @@ async function onBookmarksToggle(e) {
 
 async function loadSettings() {
   const settings = await getSettings();
+  savedSettings = settings;
   document.getElementById('open-in-new-tab').checked = settings.openInNewTab;
   document.getElementById('close-after-launch').checked = settings.closeAfterLaunch;
   document.getElementById('fallback-search').value = settings.fallbackSearch;
@@ -1273,6 +1326,11 @@ async function loadSettings() {
   document.getElementById('include-bookmarks').checked =
     Boolean(settings.includeBookmarks) && (await hasBookmarksPermission());
   settingsLoaded = true;
+}
+
+/** Are the container controls populated, i.e. is this a browser with any? */
+function containerControlsReady() {
+  return document.getElementById('container-style').options.length > 0;
 }
 
 async function onSettingChange() {
@@ -1295,12 +1353,26 @@ async function onSettingChange() {
     // new interval takes effect now rather than at the next browser restart.
     syncIntervalMin: Number(document.getElementById('sync-interval').value) || 0,
     syncOnVisit: document.getElementById('sync-on-visit').checked,
-    containerStyle: document.getElementById('container-style').value,
-    // The unticked boxes. Read from the DOM rather than kept in a variable so
-    // the form is the single source of truth, as every other setting here is.
-    hiddenContainers: [...document.querySelectorAll('#popup-containers input')]
-      .filter((i) => !i.checked)
-      .map((i) => i.dataset.scope),
+    // The two container settings are read from controls that only EXIST on a
+    // browser with containers. Everywhere else — Chrome, or a Firefox with the
+    // feature switched off — they are empty, and reading them wrote
+    // `containerStyle: ''` (not a value in the enum) and an empty
+    // `hiddenContainers`, wiping a pre-filter set on another machine. Settings
+    // live in storage.sync, so that damage travels. Left untouched unless the
+    // control is really there to speak for them.
+    ...(containerControlsReady()
+      ? {
+          containerStyle: document.getElementById('container-style').value,
+          // The unticked boxes. Read from the DOM rather than kept in a
+          // variable so the form is the single source of truth.
+          hiddenContainers: [...document.querySelectorAll('#popup-containers input')]
+            .filter((i) => !i.checked)
+            .map((i) => i.dataset.scope),
+        }
+      : {
+          containerStyle: savedSettings.containerStyle,
+          hiddenContainers: savedSettings.hiddenContainers,
+        }),
   });
   applyTheme(theme); // reflect the new theme on this page immediately
   setStatus('Settings saved.', 'ok');

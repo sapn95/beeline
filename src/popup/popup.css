@@ -270,6 +270,11 @@ footer button {
  * in either theme. */
 #results .item.contained.selected {
   background: var(--accent-bg);
+}
+
+/* Only the filled style puts a wash under the row, and only there is the
+ * selection wash hard to tell from it — the ring is for that case alone. */
+#results[data-container='fill'] .item.contained.selected {
   box-shadow: inset 0 0 0 2px var(--accent);
 }
 
@@ -290,10 +295,27 @@ footer button {
   white-space: nowrap;
   font-size: 11px;
   font-weight: 600;
-  color: var(--container, var(--muted));
+  /* The container's colour goes on the border and the dot, NOT on the text.
+   * Firefox's palette against a white background runs 1.5:1 to 4:1 — yellow is
+   * effectively invisible — and a badge whose whole job is to be readable when
+   * the colour is not enough must not itself depend on the colour. */
+  color: var(--fg);
   border: 1px solid var(--container, var(--border));
   border-radius: 999px;
   padding: 1px 8px;
+  /* The dot carries the hue. */
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cchip::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--container, var(--muted));
 }
 
 /* Same trap as the options page: .ctx sets `display: flex`, which beat the
