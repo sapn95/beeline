@@ -1,4 +1,7 @@
-name: CodeQL
+# The auto-merge job waits for a check run named `CodeQL`. That name comes from
+# the code-scanning app rather than from this workflow, so renaming the
+# workflow does not move it — checked against a real pull request first.
+name: codeql
 
 on:
   push:

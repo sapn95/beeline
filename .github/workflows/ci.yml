@@ -1,4 +1,5 @@
-name: CI
+# Frame and conventions: https://github.com/sapn95/.github/blob/main/CI.md
+name: ci
 
 on:
   push:
@@ -20,10 +21,14 @@ permissions:
 
 jobs:
   build:
+    name: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Nothing here pushes, and `pull_request` runs code from strangers.
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
@@ -32,39 +37,79 @@ jobs:
 
       - run: npm ci
 
-      - name: Lint
+      - name: lint
         run: npm run lint
 
-      - name: Check formatting
+      - name: formatting
         run: npm run format:check
 
       # Only that the generator still RUNS. Its PNG output is not byte-identical
       # across environments (zlib differs between Node builds), so diffing the
       # result against the committed icons fails on the runner even when nothing
       # is wrong — the icons are committed artefacts, not a build product.
-      - name: Generate icons (verify the generator still runs)
+      - name: the icon generator still runs
         run: npm run icons
 
-      - name: Test with coverage
+      - name: tests, with a coverage floor under them
         run: npm run test:coverage
 
-      - name: Build & package (Chrome + Firefox)
+      - name: build and package, for chrome and firefox
         run: npm run package
 
-      - name: Lint Firefox build (web-ext)
+      - name: lint the firefox build with web-ext
         run: npx --yes web-ext@10 lint --source-dir=dist-firefox --warnings-as-errors=false
 
-      - name: Upload extension builds
+      - name: upload the extension builds
         uses: actions/upload-artifact@v7
         with:
           name: extension
           path: beeline*.zip
           if-no-files-found: error
 
-      - name: Upload coverage
+      - name: upload coverage
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage/
           if-no-files-found: ignore
+
+  workflows:
+    name: lint workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: actionlint
+        uses: raven-actions/actionlint@v2.2.0
+        env:
+          # shellcheck's info and style notes are advisory here; a warning or
+          # worse blocks. Otherwise every `${{ }}` inside a single-quoted shell
+          # string is an SC2016 note that nobody is going to act on.
+          SHELLCHECK_OPTS: --severity=warning
+        with:
+          # actionlint's schema does not know `concurrency.queue`, which is a
+          # documented key and the reason a queued release is not dropped when
+          # a newer one arrives.
+          flags: -ignore 'unexpected key "queue" for "concurrency" section'
+      - name: yamllint
+        run: pipx run yamllint .
+      - name: markdownlint
+        uses: DavidAnson/markdownlint-cli2-action@v24
+
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # gitleaks reads the history, not just the tip.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

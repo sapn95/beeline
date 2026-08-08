@@ -21,7 +21,7 @@ setting logs you out of every site you use.
 If you want to keep the setting and make an exception instead, **Manage
 Exceptions…** on the same screen takes these three:
 
-```
+```text
 https://login.microsoftonline.com
 https://myapplications.microsoft.com
 https://launcher.myapps.microsoft.com
@@ -92,7 +92,7 @@ and reuses that tab's container. From `URILoadingHelper.sys.mjs`:
 This is on by default. Often it is what you wanted; when it is not, it is
 invisible. Turn it off in `about:config`:
 
-```
+```ini
 browser.link.force_default_user_context_id_for_external_opens = true
 ```
 
