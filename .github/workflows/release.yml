@@ -33,15 +33,19 @@ concurrency:
   cancel-in-progress: false
   queue: max
 
+# Read-only by default. The one job that needs to write says so itself, so a
+# second job added here later starts from nothing rather than from everything.
 permissions:
-  contents: write
-  issues: write # a blocked store publish opens/closes a tracking issue
-  pull-requests: write # main is protected: the bump lands through a PR
-  actions: write # …whose required checks this workflow has to dispatch itself
+  contents: read
 
 jobs:
   release:
     timeout-minutes: 30
+    permissions:
+      contents: write
+      issues: write # a blocked store publish opens/closes a tracking issue
+      pull-requests: write # main is protected: the bump lands through a PR
+      actions: write # …whose required checks this workflow has to dispatch itself
     # A manual dispatch from a side branch would tag THAT branch and push it to
     # both stores — only the default branch may release.
     if: >-
