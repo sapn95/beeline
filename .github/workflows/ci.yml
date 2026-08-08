@@ -93,7 +93,9 @@ jobs:
           # actionlint's schema does not know `concurrency.queue`, which is a
           # documented key and the reason a queued release is not dropped when
           # a newer one arrives.
-          flags: -ignore 'unexpected key "queue" for "concurrency" section'
+          # One token, no spaces: the action hands `flags` to actionlint without
+          # a shell parsing it, so a quoted pattern arrives split into pieces.
+          flags: -ignore unexpected.key.+queue
       - name: yamllint
         run: pipx run yamllint .
       - name: markdownlint

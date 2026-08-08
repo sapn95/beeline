@@ -7,8 +7,8 @@
     // The README opens with a centred header block, which is HTML because
     // Markdown has no way to centre anything.
     "MD033": false,
-    "MD041": false
+    "MD041": false,
   },
   "globs": ["**/*.md"],
-  "ignores": ["node_modules", "coverage"]
+  "ignores": ["node_modules", "coverage"],
 }
