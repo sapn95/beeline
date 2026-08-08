@@ -189,12 +189,12 @@ sequenceDiagram
 
 ## Storage layout
 
-| Key        | Area                                | Contents                                             | Why                                      |
-| ---------- | ----------------------------------- | ---------------------------------------------------- | ---------------------------------------- |
-| `apps`     | `local`                             | curated app list                                     | an import pulls 100+ apps (see the note) |
-| `stats`    | `local`                             | per-app `{count, lastLaunched}`                      | high-write, device-specific              |
-| `settings` | `sync`                              | tab behaviour, fallback search, AWS region, theme, … | small, user-level                        |
-| `local`    | which containers the launcher hides | names a container, so machine-local                  |
+| Key                | Area    | Contents                                             | Why                                      |
+| ------------------ | ------- | ---------------------------------------------------- | ---------------------------------------- |
+| `apps`             | `local` | curated app list                                     | an import pulls 100+ apps (see the note) |
+| `stats`            | `local` | per-app `{count, lastLaunched}`                      | high-write, device-specific              |
+| `settings`         | `sync`  | tab behaviour, fallback search, AWS region, theme, … | small, user-level                        |
+| `hiddenContainers` | `local` | which containers the launcher hides                  | names a container, so machine-local      |
 
 > NOTE: the container pre-filter lives in `local`, not `sync`, even though it is
 > a setting: a `cookieStoreId` such as `firefox-container-3` is handed out per

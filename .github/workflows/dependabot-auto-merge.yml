@@ -1,4 +1,4 @@
-name: Dependabot auto-merge
+name: dependabot auto-merge
 
 # Every Dependabot update merges itself — but only after CI is green on that very
 # commit. The job waits for all three check runs (CI `build`, CodeQL `analyze`

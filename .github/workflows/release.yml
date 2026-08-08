@@ -1,4 +1,4 @@
-name: Release
+name: release
 
 # Runs when you "do a release" any of these ways:
 #   - push a version tag:   npm version patch && git push --follow-tags
@@ -127,6 +127,7 @@ jobs:
           elif grep -qE '^feat(\([^)]*\))?:' <<<"$subjects"; then
             bump=minor
           else
+            # shellcheck disable=SC2209  # "patch" is the semver level, not the patch(1) command
             bump=patch
           fi
           echo "proceed=true" >> "$GITHUB_OUTPUT"
