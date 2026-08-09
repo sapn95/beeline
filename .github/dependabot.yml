@@ -10,7 +10,7 @@ updates:
       interval: weekly
     groups:
       actions:
-        patterns: ["*"]
+        patterns: ['*']
 
   - package-ecosystem: npm
     directory: /
@@ -18,4 +18,4 @@ updates:
       interval: weekly
     groups:
       npm:
-        patterns: ["*"]
+        patterns: ['*']
