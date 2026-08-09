@@ -1,21 +1,21 @@
 version: 2
-# One grouped PR per ecosystem per week, majors included. Every Dependabot PR
-# merges itself once CI is green on it — see workflows/dependabot-auto-merge.yml.
+# One grouped pull request per ecosystem per week. A patch or a minor merges
+# itself once the required checks on `main` are green; a major is left open for
+# review. See .github/workflows/dependabot-auto-merge.yml for both halves of
+# that, and https://github.com/sapn95/.github/blob/main/CI.md for the rest.
 updates:
-  # Keep GitHub Actions current (so deprecations like Node 20 -> 24 are auto-PR'd).
   - package-ecosystem: github-actions
-    directory: '/'
+    directory: /
     schedule:
       interval: weekly
     groups:
       actions:
-        patterns: ['*']
+        patterns: ["*"]
 
-  # Keep the dev toolchain (eslint, prettier, vitest, jsdom) up to date.
   - package-ecosystem: npm
-    directory: '/'
+    directory: /
     schedule:
       interval: weekly
     groups:
       npm:
-        patterns: ['*']
+        patterns: ["*"]
