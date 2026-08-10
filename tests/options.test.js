@@ -528,6 +528,53 @@ describe('filtering', () => {
     $('app-filter').dispatchEvent(new Event('input'));
     expect(rows()[0].textContent).toMatch(/No apps match/);
   });
+
+  it('does not care which key you pressed between two words', async () => {
+    // Reported against the launcher: `nova-test` found the app and `nova test`
+    // found nothing. This box had the same miss for the same reason — one
+    // substring test over the whole string — and the two have to agree about
+    // what a SEPARATOR is.
+    //
+    // Not about anything else: this filter stays a substring match on purpose.
+    // It is a management list of a thousand-odd rows, where the launcher's
+    // subsequence matching would pull in half of them. So `novatest` finds this
+    // app in the launcher and deliberately does not find it here.
+    const apps = [app('NOVA-TEST', 'https://nova.example.com/', 'myapps'), APPS[0]];
+    for (const query of ['nova-test', 'nova test', 'test nova', 'NOVA_TEST', 'nova  test ']) {
+      await mount({ apps });
+      $('app-filter').value = query;
+      $('app-filter').dispatchEvent(new Event('input'));
+      expect(rowNames(), `filtering by "${query}"`).toEqual(['NOVA-TEST']);
+    }
+  });
+
+  it('stays a substring match, so a filter still narrows hard', async () => {
+    // The counterpart to the test above, and the reason it is not simply
+    // handed to the fuzzy matcher.
+    const apps = [app('NOVA-TEST', 'https://nova.example.com/', 'myapps')];
+    await mount({ apps });
+    $('app-filter').value = 'nvtst';
+    $('app-filter').dispatchEvent(new Event('input'));
+    expect(rows()[0].textContent).toMatch(/No apps match/);
+  });
+
+  it('still narrows on every word rather than any of them', async () => {
+    // More forgiving about separators is not the same as more forgiving about
+    // what was typed. A second word must still cut the list down.
+    await mount();
+    $('app-filter').value = 'jira wiki';
+    $('app-filter').dispatchEvent(new Event('input'));
+    expect(rows()[0].textContent).toMatch(/No apps match/);
+  });
+
+  it('lets the words come from the name and the URL together', async () => {
+    // One haystack, not three separate substring tests: the name says which app
+    // and the URL says which environment, and people type both.
+    await mount();
+    $('app-filter').value = 'jira example.com';
+    $('app-filter').dispatchEvent(new Event('input'));
+    expect(rowNames()).toEqual(['Jira']);
+  });
 });
 
 describe('the full URL on hover', () => {

@@ -13,6 +13,7 @@ import {
   scrollMyAppsStepInPage,
 } from '../lib/importer.js';
 import { accumulateApps } from '../lib/collector.js';
+import { queryTerms } from '../lib/fuzzy.js';
 import {
   listContainers,
   withContainer,
@@ -297,6 +298,13 @@ function showImportProgress(count) {
   listEl.replaceChildren(li);
 }
 
+/** Is the row being edited still on screen? */
+function editVisible() {
+  if (editingId === null) return false;
+  const app = apps.find((x) => x.id === editingId);
+  return !!app && matchesFilters(app);
+}
+
 /**
  * Does this app pass both filters? Shared by the list and by "Remove all", so
  * the button can never act on a different set than the one on screen.
@@ -306,25 +314,21 @@ function showImportProgress(count) {
  * the container is the only thing telling the rows apart. The dropdown asks
  * "which identity", which no amount of typing can express: there is no text
  * that means "the ones with no container at all".
+ *
+ * Every word has to appear SOMEWHERE in the three, rather than the whole string
+ * appearing in one of them. It used to be one substring test, which meant
+ * `nova test` found nothing on an app called NOVA-TEST while `nova-test` found
+ * it — the same miss the launcher had, on the other screen, and the fix has to
+ * agree with it or the two boxes disagree about what you typed.
  */
-/** Is the row being edited still on screen? */
-function editVisible() {
-  if (editingId === null) return false;
-  const app = apps.find((x) => x.id === editingId);
-  return !!app && matchesFilters(app);
-}
-
 function matchesFilters(a) {
-  const q = appFilter.trim().toLowerCase();
   const inContainer = containerFilter === 'all' || (a.container ?? '') === containerFilter;
   if (!inContainer) return false;
-  if (!q) return true;
+  const terms = queryTerms(appFilter);
+  if (terms.length === 0) return true;
   const container = a.container ? containerInfo.get(a.container)?.name || a.container : '';
-  return (
-    a.name.toLowerCase().includes(q) ||
-    a.url.toLowerCase().includes(q) ||
-    container.toLowerCase().includes(q)
-  );
+  const haystack = `${a.name}\n${a.url}\n${container}`.toLowerCase();
+  return terms.every((term) => haystack.includes(term));
 }
 
 /**
