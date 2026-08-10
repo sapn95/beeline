@@ -45,6 +45,42 @@ describe('rankApps', () => {
   });
 });
 
+describe('an app whose name carries a separator', () => {
+  // The report, end to end: `nova-test` found the app and `nova test` found
+  // nothing. Ranking is where a user meets the matcher, so the guarantee is
+  // pinned here as well as in fuzzy.test.js.
+  const withNova = normalizeAppList([
+    ...apps.map((a) => ({ name: a.name, url: a.url })),
+    { name: 'NOVA-TEST Account', url: 'https://nova-test.example.com' },
+  ]);
+
+  it.each(['nova-test', 'nova test', 'test nova', 'novatest', 'NOVA_TEST', 'nova.test'])(
+    'is found by "%s"',
+    (query) => {
+      const r = rankApps(withNova, query, 0, {});
+      expect(r.map((x) => x.app.name)).toContain('NOVA-TEST Account');
+    },
+  );
+
+  it('puts it first, ahead of anything that merely scatters the letters', () => {
+    expect(rankApps(withNova, 'nova test', 0, {})[0].app.name).toBe('NOVA-TEST Account');
+  });
+
+  it('highlights the letters of both words', () => {
+    const hit = rankApps(withNova, 'nova test', 0, {})[0];
+    expect(hit.field).toBe('name');
+    expect(hit.positions).toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
+  });
+
+  it('does not turn a second word into a free pass', () => {
+    // The fix loosens separators, not the search. A word that is not there
+    // still removes the app.
+    expect(rankApps(withNova, 'nova prod', 0, {}).map((x) => x.app.name)).not.toContain(
+      'NOVA-TEST Account',
+    );
+  });
+});
+
 describe('scoreApp', () => {
   it('returns null when neither name nor host match', () => {
     expect(scoreApp(apps[0], 'zzzzz', 0, {})).toBeNull();
