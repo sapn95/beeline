@@ -215,3 +215,17 @@ when the name doesn't match, then sorts best-first with an alphabetical
 tiebreak. Matched character positions are returned so the popup can `<mark>`
 them. Items tagged `source: 'bookmark'` lose a small constant, so an app of
 equal relevance always ranks first.
+
+The query is first split into **terms** on `[\s\-_./\\]` — the same characters
+that count as a word boundary in the target — and every term has to match, each
+as its own subsequence, in any order. That split is the whole difference
+between `nova-test` and `nova test`, which used to be one subsequence against
+the raw name: a separator had to appear literally, so the second found nothing.
+Terms are deduplicated, because they are scored independently and two identical
+ones would both land on the same characters and double one word's score.
+
+The options page filters its app list against the same terms, over one haystack
+of name + URL + container name. It stays a **substring** test rather than
+reusing `fuzzyMatch`: it renders a thousand-odd rows, and subsequence matching
+there pulls in half of them. So the two boxes agree about what a separator is,
+and deliberately about nothing else.

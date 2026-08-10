@@ -39,6 +39,10 @@ actually has bound.)
   local storage; no network round-trip on open.
 - ⌨️ **Keyboard-first** — fuzzy search, `↑`/`↓` to navigate, `Enter` to launch,
   `Esc` to clear/close. Matched letters are highlighted.
+- 🔤 **Type the words in any order** — every word you type has to appear, and
+  which key you pressed between them does not matter. `nova test`, `nova-test`,
+  `test nova` and `nova_test` all find `NOVA-TEST`. A second word narrows the
+  list; it is not a phrase that has to be there verbatim.
 - 🧠 **Learns your habits** — frequently and recently launched apps float to the
   top.
 - 📥 **Import from My Apps** — one click pulls your tiles from
