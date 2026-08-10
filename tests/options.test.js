@@ -548,6 +548,16 @@ describe('filtering', () => {
     }
   });
 
+  it('does not claim to be filtering on text that narrows nothing', async () => {
+    // A half-typed separator matches everything, so the header must not read
+    // "2 found · 2 total" over a list nobody has narrowed.
+    await mount();
+    $('app-filter').value = ' - ';
+    $('app-filter').dispatchEvent(new Event('input'));
+    expect(rowNames()).toEqual(['Jira', 'Wiki']);
+    expect($('count').textContent).toBe('2');
+  });
+
   it('stays a substring match, so a filter still narrows hard', async () => {
     // The counterpart to the test above, and the reason it is not simply
     // handed to the fuzzy matcher.

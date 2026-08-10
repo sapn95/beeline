@@ -357,14 +357,17 @@ function wrapForTooltip(url, width = 90) {
 }
 
 function renderList() {
-  const q = appFilter.trim().toLowerCase();
   // Two filters, because they answer different questions. The text box asks
   // "which app", and now matches the container's NAME as well — with the same
   // tile imported from several containers, name and URL are identical and the
   // container is the only thing telling the rows apart. The dropdown asks
   // "which identity", which no amount of typing can express: there is no text
   // that means "the ones with no container at all".
-  const narrowed = containerFilter !== 'all' || q;
+  //
+  // Asked of the TERMS, the same way matchesFilters decides: text that is only
+  // separators narrows nothing, and a header reading "1160 found · 1160 total"
+  // over an untouched list claims a filter that is not doing anything.
+  const narrowed = containerFilter !== 'all' || queryTerms(appFilter).length > 0;
   const filtered = narrowed ? apps.filter((a) => matchesFilters(a)) : apps;
   countEl.textContent = narrowed
     ? `${filtered.length} found · ${apps.length} total`
