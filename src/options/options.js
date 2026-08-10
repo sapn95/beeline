@@ -37,7 +37,11 @@ const statusEl = document.getElementById('status');
 let apps = [];
 let editingId = null;
 let editDraft = null; // {name, url} in-progress edit, preserved across re-renders
-let appFilter = '';
+// The filter box, kept as WORDS rather than as the text that was typed. Worked
+// out once per keystroke: matchesFilters runs for all 1160 apps on every
+// render, and splitting the same string 1160 times is pure waste in the one
+// place this file is careful about. Nothing needs the raw text.
+let appFilterTerms = [];
 let containerFilter = 'all'; // 'all' | '' (no container) | a cookieStoreId
 // Rows are built in chunks, exactly as the popup does it. With 1160 apps a
 // single unfiltered render is 1160 <li>, ~9000 elements and 2300 listeners —
@@ -96,7 +100,7 @@ function wireControls() {
   document.getElementById('import-file').addEventListener('change', onImportFile);
   document.getElementById('clear').addEventListener('click', onClear);
   document.getElementById('app-filter').addEventListener('input', (e) => {
-    appFilter = e.target.value;
+    appFilterTerms = queryTerms(e.target.value);
     renderList();
   });
   document.getElementById('filter-container').addEventListener('change', (e) => {
@@ -324,11 +328,10 @@ function editVisible() {
 function matchesFilters(a) {
   const inContainer = containerFilter === 'all' || (a.container ?? '') === containerFilter;
   if (!inContainer) return false;
-  const terms = queryTerms(appFilter);
-  if (terms.length === 0) return true;
+  if (appFilterTerms.length === 0) return true;
   const container = a.container ? containerInfo.get(a.container)?.name || a.container : '';
   const haystack = `${a.name}\n${a.url}\n${container}`.toLowerCase();
-  return terms.every((term) => haystack.includes(term));
+  return appFilterTerms.every((term) => haystack.includes(term));
 }
 
 /**
@@ -367,7 +370,7 @@ function renderList() {
   // Asked of the TERMS, the same way matchesFilters decides: text that is only
   // separators narrows nothing, and a header reading "1160 found · 1160 total"
   // over an untouched list claims a filter that is not doing anything.
-  const narrowed = containerFilter !== 'all' || queryTerms(appFilter).length > 0;
+  const narrowed = containerFilter !== 'all' || appFilterTerms.length > 0;
   const filtered = narrowed ? apps.filter((a) => matchesFilters(a)) : apps;
   countEl.textContent = narrowed
     ? `${filtered.length} found · ${apps.length} total`
