@@ -56,6 +56,59 @@ Two things to check, in this order.
    app in the ordinary context — the badge would then be a promise Beeline
    cannot keep, so it says so and adds the app without a container instead.
 
+## "Open this site in your assigned Container?" appears when you launch
+
+That page is not Beeline. The address bar says whose it is:
+
+```text
+moz-extension://<uuid>/confirm-page.html?url=https%3A%2F%2Flogin.microsoftonline.com%2F…
+```
+
+A UUID is not a name, so confirm it rather than take this on trust: open
+`about:debugging` → **This Firefox**, and find the add-on whose **Internal
+UUID** matches. It is **Multi-Account Containers** (`@testpilot-containers`).
+
+It appears because that add-on has an _"Always open this site in …"_ assignment
+on a host Beeline's launch passes through. A My Apps launch starts at
+`launcher.myapps.microsoft.com/api/signin/…` and redirects through
+`login.microsoftonline.com`, so an assignment on that sign-in host fires on
+every launch made from any other container.
+
+**Assigning the sign-in host breaks more than it fixes.** Every work account in
+this flow signs in through the same one, so pinning it to a single container
+means a sign-in that starts in container A is pulled into container B
+mid-redirect. The test cookie is then set in one jar and read from another, and
+Entra reports _"Your browser is currently set to block cookies"_ — which sounds
+like a browser setting and is not.
+
+**The fix is to remove that one assignment**, not to answer the question. Open
+`https://login.microsoftonline.com` in a tab, click the Containers toolbar
+button, and untick _"Always Open This Site in …"_. Assignments on ordinary
+application hosts are fine and worth keeping; it is only the shared sign-in host
+that has to stay unassigned.
+
+**Do not reach for _"Remember my decision for this site"_ to make it stop.** It
+does not remove the assignment — it **moves** it to whichever container you
+picked and stops asking from then on. Answering "open in admin" with the box
+ticked therefore reassigns the sign-in host to `admin`, which is the same trap
+one container over and now silent. From
+[`assignManager.js`](https://github.com/mozilla/multi-account-containers/blob/master/src/js/background/assignManager.js),
+where the choice is written back over the stored assignment:
+
+```js
+siteSettings.neverAsk = true;
+siteSettings.userContextId = backgroundLogic.getUserContextIdFromCookieStoreId(m.cookieStoreId);
+```
+
+The one case where that box really does remove the assignment is answering it
+from a tab in **no container at all** — then the same handler takes its
+`defaultContainer` path and deletes the entry. Unticking the assignment is
+easier to remember and works from anywhere.
+
+Beeline does not override it. The assignment belongs to another add-on and is
+something you asked for; an app launcher that quietly defeated it would be a
+worse bug than the interruption.
+
 ## The import "fails" when you are not signed in yet
 
 It no longer does, as of v0.6.0. It waits — up to ten minutes — and the list
