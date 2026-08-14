@@ -56,6 +56,42 @@ Two things to check, in this order.
    app in the ordinary context — the badge would then be a promise Beeline
    cannot keep, so it says so and adds the app without a container instead.
 
+## "Open this site in your assigned Container?" appears when you launch
+
+That page is not Beeline. The address bar says whose it is:
+
+```text
+moz-extension://<uuid>/confirm-page.html?url=https%3A%2F%2Flogin.microsoftonline.com%2F…
+```
+
+It belongs to **Multi-Account Containers** (`@testpilot-containers`), and it
+appears because that add-on has an _"Always open this site in …"_ assignment on
+a host Beeline's launch passes through. A My Apps launch starts at
+`launcher.myapps.microsoft.com/api/signin/…` and redirects through
+`login.microsoftonline.com`, so an assignment on the sign-in host fires on every
+launch made from any other container.
+
+**Assigning `login.microsoftonline.com` breaks more than it fixes.** It is the
+one host every Microsoft account signs in through, so pinning it to a single
+container means a sign-in that starts in container A is pulled into container B
+mid-redirect. The test cookie is then set in one jar and read from another, and
+Entra reports _"Your browser is currently set to block cookies"_ — which sounds
+like a browser setting and is not.
+
+**The fix is to remove that one assignment**, not to answer the question. Open
+`https://login.microsoftonline.com` in a tab, click the Containers toolbar
+button, and untick _"Always Open This Site in …"_. Assignments on ordinary
+application hosts are fine and worth keeping; it is only the shared sign-in host
+that has to stay unassigned.
+
+Ticking _"Remember my decision for this site"_ on that page records an exception
+for the container you are in rather than removing the assignment, so the next
+container you launch from asks again.
+
+Beeline does not override it. The assignment belongs to another add-on and is
+something you asked for; an app launcher that quietly defeated it would be a
+worse bug than the interruption.
+
 ## The import "fails" when you are not signed in yet
 
 It no longer does, as of v0.6.0. It waits — up to ten minutes — and the list
