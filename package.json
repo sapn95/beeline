@@ -17,9 +17,11 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "icons": "node scripts/make-icons.mjs",
+    "art": "bash scripts/make-art.sh",
     "build": "node scripts/build.mjs",
     "build:firefox": "node scripts/build.mjs --firefox",
     "package": "node scripts/build.mjs --zip && node scripts/build.mjs --firefox --zip",
+    "amo:art": "node scripts/amo-art.mjs",
     "ci": "npm run lint && npm run format:check && npm run test:coverage && npm run package"
   },
   "devDependencies": {

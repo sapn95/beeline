@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>Beeline — manage apps (store shot)</title>
+    <!-- The options page, staged for the store at the gallery's 1.6:1. The panel
+         is the REAL src/options/options.css laying out example data — only the
+         window frame and the background around it are drawn here, so a CSS
+         change to the product shows up in this picture the next time it is
+         rendered. The markup inside .panel is options.html with the sections
+         nobody needs to see in a screenshot left out.
+         Rendered by scripts/make-art.sh; do not edit the PNG by hand. -->
+    <link rel="stylesheet" href="../../src/options/options.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+      }
+      .stage {
+        width: 1280px;
+        height: 800px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(900px 600px at 110% -10%, #fde8e8 0%, rgba(253, 232, 232, 0) 60%), #f5f6f8;
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+      }
+      /* A browser window rather than a bare panel: the options page is a tab,
+         and without the frame a reader takes this for the popup — which is
+         what the other screenshot already shows. */
+      .window {
+        width: 960px;
+        height: 748px;
+        background: #fff;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow:
+          0 30px 70px rgba(17, 20, 32, 0.22),
+          0 4px 12px rgba(17, 20, 32, 0.08);
+      }
+      .chrome {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        height: 46px;
+        padding: 0 18px;
+        background: #f1f2f5;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .dots {
+        display: flex;
+        gap: 7px;
+      }
+      .dots i {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: #d6d8de;
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: #6b7280;
+      }
+      .tab img {
+        width: 15px;
+        height: 15px;
+        border-radius: 3px;
+      }
+      .panel {
+        position: relative;
+        height: calc(748px - 46px);
+        overflow: hidden;
+      }
+      /* The app list runs past the bottom of the frame, because 140 apps do.
+         Faded rather than sliced: a row cut cleanly in half reads as a broken
+         screenshot, and the same crop under a gradient reads as a page that
+         continues. */
+      .panel::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 72px;
+        background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #fff 82%);
+      }
+      /* The page's own top padding is generous for a tab you scroll; in a fixed
+         frame it just costs a row of the app list. */
+      .panel main {
+        padding-top: 16px;
+      }
+      /* The list scrolls at 52vh in the product. Nothing scrolls in a picture,
+         so the frame is what does the cropping. */
+      .panel .apps {
+        max-height: none;
+      }
+      /* Colours Firefox gives its default containers, which is what the product
+         reads off contextualIdentities. */
+      .dot.blue {
+        background: #37adff;
+      }
+      .dot.green {
+        background: #51cd00;
+      }
+      .dot.orange {
+        background: #ff9f00;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="window">
+        <div class="chrome">
+          <div class="dots"><i></i><i></i><i></i></div>
+          <div class="tab">
+            <img src="../../src/icons/icon-128.png" alt="" />
+            Beeline — Manage apps
+          </div>
+        </div>
+
+        <div class="panel">
+          <main>
+            <h1>Beeline — Fast App Launcher</h1>
+            <p class="lead">
+              Manage the apps that show up in the launcher popup. Open it without touching the
+              mouse: <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd>
+            </p>
+
+            <section>
+              <h2>Import</h2>
+              <p>
+                Pull your apps straight from the Microsoft My Apps portal. You will be asked to
+                grant access to <code>myapplications.microsoft.com</code> the first time.
+              </p>
+              <div class="row import-row">
+                <label class="select inline">
+                  Read
+                  <select aria-label="Read from which container">
+                    <option>Work container</option>
+                  </select>
+                </label>
+                <button type="button">Import from My Apps</button>
+                <span class="spacer"></span>
+                <button type="button">Export JSON</button>
+                <span class="file-btn">Import JSON</span>
+              </div>
+            </section>
+
+            <section>
+              <div class="row between">
+                <h2>Your apps (<span>140</span>)</h2>
+                <button type="button" class="danger">Remove all</button>
+              </div>
+              <div class="row filter-row">
+                <!-- The id is what options.css styles the filter box by; without
+                     it this is an unstyled search field that matches nothing in
+                     the product. -->
+                <input
+                  id="app-filter"
+                  type="search"
+                  placeholder="Filter apps…"
+                  aria-label="Filter apps"
+                />
+                <label class="select inline">
+                  Container
+                  <select aria-label="Filter by container">
+                    <option>All containers</option>
+                  </select>
+                </label>
+              </div>
+              <ul class="apps">
+                <li>
+                  <div class="grow">
+                    <div class="app-name">Azure Portal</div>
+                    <div class="app-url">https://portal.azure.com/</div>
+                  </div>
+                  <span class="badge"><span class="dot blue"></span>Work</span>
+                  <button type="button">Edit</button>
+                  <button type="button" class="danger">Remove</button>
+                </li>
+                <li>
+                  <div class="grow">
+                    <div class="app-name">AWS Console</div>
+                    <div class="app-url">https://console.aws.amazon.com/</div>
+                  </div>
+                  <span class="badge"><span class="dot blue"></span>Work</span>
+                  <button type="button">Edit</button>
+                  <button type="button" class="danger">Remove</button>
+                </li>
+                <li>
+                  <div class="grow">
+                    <div class="app-name">Salesforce</div>
+                    <div class="app-url">https://salesforce.com/</div>
+                  </div>
+                  <span class="badge"><span class="dot green"></span>Sales</span>
+                  <button type="button">Edit</button>
+                  <button type="button" class="danger">Remove</button>
+                </li>
+                <li>
+                  <div class="grow">
+                    <div class="app-name">Atlassian</div>
+                    <div class="app-url">https://id.atlassian.com/</div>
+                  </div>
+                  <span class="badge"><span class="dot blue"></span>Work</span>
+                  <button type="button">Edit</button>
+                  <button type="button" class="danger">Remove</button>
+                </li>
+                <li>
+                  <div class="grow">
+                    <div class="app-name">Workday</div>
+                    <div class="app-url">https://myworkday.com/</div>
+                  </div>
+                  <span class="badge"><span class="dot orange"></span>Personal</span>
+                  <button type="button">Edit</button>
+                  <button type="button" class="danger">Remove</button>
+                </li>
+              </ul>
+            </section>
+          </main>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

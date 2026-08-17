@@ -7,7 +7,8 @@ name: release
 #     since the last release AND the full test suite is green (see "Plan" below)
 # It builds, tests, and packages BOTH Chrome + Firefox, and — when the store
 # secrets are set — uploads/publishes to the Chrome Web Store and signs/publishes
-# to Firefox AMO automatically.
+# to Firefox AMO automatically, then uploads the two parts of the AMO listing
+# that come out of no package: the icon and the screenshots.
 #
 # See docs/publishing.md for setup. Secrets:
 #   Chrome:       CHROME_EXTENSION_ID, CHROME_CLIENT_ID, CHROME_CLIENT_SECRET, CHROME_REFRESH_TOKEN
@@ -463,6 +464,7 @@ jobs:
           fi
 
       - name: Sign & publish to Firefox AMO
+        id: sign
         if: ${{ !cancelled() && steps.amo.outputs.ready == 'true' }}
         env:
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
@@ -495,3 +497,34 @@ jobs:
             exit 1
           fi
           echo "$out"
+
+      # The listing icon and the screenshots, which web-ext cannot upload and
+      # AMO does not read from the package — with neither, a signed add-on sits
+      # in the store behind a grey placeholder and an empty gallery, which is
+      # what this listing looked like for its first six versions.
+      #
+      # Firefox only, deliberately after the AMO sign step and not after the
+      # Chrome one: it reads dist-firefox/ for the icon and the gecko id, and
+      # the screenshots it posts are docs/store/amo/, not the Chrome art that
+      # shares docs/store/ with them.
+      #
+      # Gated on the sign step SUCCEEDING, and only on that: it is what creates
+      # the add-on on a first release, so there is nothing to attach art to
+      # before it. A skipped sign (secrets absent) leaves outcome != success and
+      # skips this too, so the secret guard above is not repeated here.
+      #
+      # The script is deliberately quiet about the things that are not our
+      # failure — no add-on yet, AMO read-only, uploads switched off — and loud
+      # about everything else, for the same reason the step above is: a release
+      # that reports success without reaching AMO is the one outcome worth
+      # refusing.
+      - name: Upload the AMO listing art
+        # Its own budget, because it is last in a job whose earlier steps can
+        # legitimately spend nearly the whole 30 minutes, and because it is the
+        # one step here that is mid-flight on a live listing when it is killed.
+        timeout-minutes: 8
+        if: ${{ !cancelled() && steps.sign.outcome == 'success' }}
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: npm run amo:art

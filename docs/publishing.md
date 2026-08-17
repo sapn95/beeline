@@ -218,6 +218,70 @@ build when these secrets are set (otherwise it's skipped with a warning):
 As with the Chrome store, create the AMO listing once by hand; thereafter tagging
 a version signs + uploads automatically via `web-ext sign`.
 
+### The listing art
+
+`npm run amo:art`, run by the release workflow immediately after the sign step —
+and after that one, never after the Chrome publish. It reads the **Firefox**
+build: the listing icon is `dist-firefox/icons/icon-128.png` and the add-on is
+named by the gecko id in `dist-firefox/manifest.json`. `dist/` is the Chrome
+build and has no `browser_specific_settings` at all, so pointing this at it
+would upload the wrong icon and then crash looking for the id.
+
+It exists because `web-ext sign` uploads neither of those two things and AMO
+reads neither from the package. Without them a signed, reviewed add-on sits in
+the store behind Mozilla's grey placeholder with an empty gallery — which is
+what this listing was through v0.6.1.
+
+**Screenshots come from [`docs/store/amo/`](store/amo/)** — `01-*.png`,
+`02-*.png`, … — in filename order, and from nowhere else. `docs/store/` itself
+holds art for both stores, including the Chrome Web Store's required 1280×800,
+so a numbered picture that lands there is Chrome's and is not uploaded here. The
+directory is what says which store a picture is for; a glob over the shared one
+cannot tell.
+
+Regenerate the set with `npm run art` (needs Chrome and `npm run icons` first).
+Both shots are staged HTML in `docs/store/` that link the extension's own CSS,
+so the pictures follow the product instead of drifting from it. They are
+captured at 2×: AMO stores a preview at up to 2400×1800 and never upscales, so
+2560×1600 lands as 2400×1500 and stays sharp on a hi-dpi screen. The gallery
+card is 320×200 — **1.6:1** — so anything squarer letterboxes into a thin strip
+and shows almost nothing. There is no minimum and no ratio rule on the API path;
+the 1000×750 check belongs to the devhub form, which this never touches.
+
+It is **declarative** and safe to re-run: every run posts the whole set and then
+deletes the previews that were there, so a sync that stopped — AMO read-only,
+the add-on not created yet, a request that timed out — is finished by running it
+again with the credentials in the environment. There is nothing to undo first.
+
+Three things about that API each cost an afternoon, so they are written down
+here rather than rediscovered.
+
+- **There is no image replace.** `PATCH .../previews/<id>/` accepts a new image,
+  answers `200` — and keeps the old one. Only the caption and the position are
+  writable after creation. Replacing a screenshot is POST then DELETE, in that
+  order: deleting first would leave the public page with no screenshots at all
+  for as long as the upload takes, and every way a run can die in that window
+  ends with the page bare. Posting first fails into duplicates, which are
+  visible and repaired by running it again. Reading the current set is a third
+  quirk: `GET` on the previews collection is a `405`, so the existing previews
+  come off `previews[]` on the add-on detail.
+- **The declared part type is what gets validated**, not the bytes. A bare
+  `Buffer` appended to a `FormData` goes out as `application/octet-stream`, and
+  a perfectly good PNG comes back as _"Images must be either PNG or JPG."_ Wrap
+  it: `new Blob([buf], { type: 'image/png' })`.
+- **Uploads are paced about 21 seconds apart.** Preview create and delete count
+  against the same add-on submission throttle as the version upload that
+  `web-ext sign` made minutes earlier — 3 a minute, 10 an hour — and a naive
+  loop `429`s on its fourth call. A sync that would need more than the hour's
+  ten is refused up front rather than halfway through.
+
+| Message                          | Meaning                                                                                                                                                        |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AMO secrets incomplete`         | The two secrets are not both set. Nothing was uploaded; nothing is broken.                                                                                     |
+| `No add-on on AMO under this id` | The art step ran before a listing existed. The next release uploads it.                                                                                        |
+| `AMO is read-only right now`     | Mozilla is mid-deploy or mid-incident. The version published; the art follows next release.                                                                    |
+| `AMO uploads are switched off`   | The same, as a `503` from an upload rather than up front. Before anything has changed it is a warning and a green step; after that it is an error, on purpose. |
+
 > Firefox notes: the web-search fallback uses DuckDuckGo (Firefox lacks
 > `chrome.search.query`); import, sync, alarms, and the AWS-region feature all
 > work the same.

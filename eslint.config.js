@@ -26,7 +26,10 @@ export default [
     },
   },
   {
-    files: ['tests/**/*.js'],
+    // .mjs as well as .js: tests/helpers/fake-amo.mjs is loaded with
+    // `node --import` from a fixture directory that has no package.json, so the
+    // extension is the only thing telling Node it is a module.
+    files: ['tests/**/*.js', 'tests/**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',
