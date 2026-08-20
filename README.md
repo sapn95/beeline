@@ -91,8 +91,12 @@ actually has bound.)
 
 ![Beeline options — add, import, and manage your apps](assets/options.png)
 
-The icon is a generated rounded gradient tile (`npm run icons`). The 1280×800
-store screenshot lives in [docs/store/](docs/store/screenshot-1280x800.png).
+The icon is a generated rounded gradient tile (`npm run icons`). The Chrome Web
+Store's 1280×800 screenshot lives in
+[docs/store/](docs/store/screenshot-1280x800.png); the AMO set is
+[docs/store/amo/](docs/store/amo/), numbered in the order the listing shows it,
+rendered from the staged HTML beside it by `npm run art` and uploaded by the
+release workflow.
 
 ## Installation
 

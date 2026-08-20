@@ -6,4 +6,5 @@ src/icons/
 
 # binary image assets
 docs/store/*.png
+docs/store/amo/*.png
 assets/*.png
